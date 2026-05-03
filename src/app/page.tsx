@@ -5,7 +5,7 @@ export default function Dashboard() {
       style={{ backgroundImage: "url('/coach.jpg')" }}
     >
       {/* Dark overlay for readability */}
-      <div className="absolute inset-0 bg-black/80 pointer-events-none" />
+      <div className="absolute inset-0 bg-black/55 pointer-events-none" />
 
       <div className="relative z-10">
       {/* Top strip */}
