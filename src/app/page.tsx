@@ -2,25 +2,42 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
       {/* Top strip */}
-      <div className="w-full bg-[#060606] border-b border-[#222] px-4 py-3">
-        <p className="text-sm font-semibold tracking-widest text-white uppercase">
-          WEEK 18 &middot; Sun review in 4 days &middot;{" "}
-          <span className="text-red-400">OWED THIS WEEK: $135</span>
-        </p>
-        <div className="mt-2 flex flex-wrap gap-4">
-          <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
-            <input type="checkbox" className="accent-green-500 w-4 h-4" />
-            30 min cardio
-          </label>
-          <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
-            <input type="checkbox" className="accent-green-500 w-4 h-4" />
-            Hit protein
-          </label>
-          <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
-            <input type="checkbox" className="accent-green-500 w-4 h-4" />
-            Submit proof
-          </label>
+      <div className="w-full bg-[#060606] border-b border-[#222] px-4 py-3 flex items-center gap-4">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold tracking-widest text-white uppercase">
+            WEEK 18 &middot; Sun review in 4 days &middot;{" "}
+            <span className="text-red-400">OWED THIS WEEK: $135</span>
+          </p>
+          <div className="mt-2 flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+              <input type="checkbox" className="accent-green-500 w-4 h-4" />
+              30 min cardio
+            </label>
+            <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+              <input type="checkbox" className="accent-green-500 w-4 h-4" />
+              Hit protein
+            </label>
+            <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+              <input type="checkbox" className="accent-green-500 w-4 h-4" />
+              Submit proof
+            </label>
+          </div>
         </div>
+        <a
+          href="https://www.instagram.com/flexdeusa/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex flex-col items-center gap-1 shrink-0"
+          title="Your coach"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/coach.jpg"
+            alt="Coach"
+            className="w-14 h-14 rounded-full object-cover border-2 border-red-500/60 hover:border-red-400 transition-colors"
+          />
+          <span className="text-[9px] font-bold tracking-widest text-red-400 uppercase">Coach</span>
+        </a>
       </div>
 
       {/* Dashboard grid */}
