@@ -13,11 +13,17 @@ import { unstable_cache } from "next/cache";
 
 // ---------- Config ----------
 
-const SHEET_ID = process.env.SHEET_ID || "";
-const SERVICE_ACCOUNT_JSON_RAW = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "";
+// Read env at call-time, not module-load time. This matters for the init
+// script which loads dotenv after this module would otherwise be imported.
+function sheetId(): string {
+  return process.env.SHEET_ID || "";
+}
+function serviceAccountJsonRaw(): string {
+  return process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "";
+}
 
 export function isConfigured(): boolean {
-  return Boolean(SHEET_ID && SERVICE_ACCOUNT_JSON_RAW);
+  return Boolean(sheetId() && serviceAccountJsonRaw());
 }
 
 // Tab schemas — keep in sync with the schema we create in ensureTabs().
@@ -52,6 +58,63 @@ export type TabName = keyof typeof TAB_SCHEMAS;
 
 let cachedClient: sheets_v4.Sheets | null = null;
 
+
+/**
+ * Decode the Vercel-CLI .env.local format. The CLI writes JSON values
+ * by wrapping in double quotes and converting literal newlines/tabs in
+ * the source to "\\n" / "\\t" 2-char sequences — but does NOT escape
+ * inner double quotes or doubly-escape backslashes inside string
+ * literals. The result isn't valid JSON because backslash outside
+ * strings is illegal in JSON. This walks the value char-by-char,
+ * tracking whether we are inside a string literal, and only converts
+ * escape sequences that occur OUTSIDE strings. Inside strings, the
+ * 2-char "\\n" / "\\t" sequences are already valid JSON escapes.
+ */
+function decodeVercelEnvJson(raw: string): string {
+  let out = "";
+  let i = 0;
+  let inString = false;
+  let escapeNext = false;
+  while (i < raw.length) {
+    const c = raw[i];
+    if (inString) {
+      if (escapeNext) {
+        out += c;
+        escapeNext = false;
+        i++;
+        continue;
+      }
+      if (c === "\\") {
+        out += c;
+        escapeNext = true;
+        i++;
+        continue;
+      }
+      if (c === '"') {
+        inString = false;
+      }
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === "\\" && i + 1 < raw.length) {
+      const n = raw[i + 1];
+      if (n === "n") { out += "\n"; i += 2; continue; }
+      if (n === "r") { out += "\r"; i += 2; continue; }
+      if (n === "t") { out += "\t"; i += 2; continue; }
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
 function sheetsClient(): sheets_v4.Sheets {
   if (cachedClient) return cachedClient;
   if (!isConfigured()) {
@@ -60,12 +123,23 @@ function sheetsClient(): sheets_v4.Sheets {
     );
   }
   let creds;
+  const raw = serviceAccountJsonRaw();
   try {
-    creds = JSON.parse(SERVICE_ACCOUNT_JSON_RAW);
-  } catch (e) {
-    throw new Error(
-      `GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON: ${(e as Error).message}`
-    );
+    creds = JSON.parse(raw);
+  } catch {
+    // Fallback for .env.local values written by Vercel CLI. Outside of
+    // string literals it emits literal "\n" (2 chars), but JSON parsers
+    // reject backslash outside strings. Inside string literals "\n" is
+    // already a valid JSON escape. So convert \n -> newline only when
+    // OUTSIDE a string, leaving in-string escapes untouched.
+    const decoded = decodeVercelEnvJson(raw);
+    try {
+      creds = JSON.parse(decoded);
+    } catch (e2) {
+      throw new Error(
+        `GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON: ${(e2 as Error).message}`
+      );
+    }
   }
   const auth = new google.auth.GoogleAuth({
     credentials: creds,
@@ -135,7 +209,7 @@ async function readTab(
   try {
     const client = sheetsClient();
     const res = await client.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
+      spreadsheetId: sheetId(),
       range: `${tab}!A1:Z`,
       valueRenderOption: "UNFORMATTED_VALUE",
       dateTimeRenderOption: "FORMATTED_STRING",
@@ -390,7 +464,7 @@ export async function ensureTabs(): Promise<{
   existing: TabName[];
 }> {
   const client = sheetsClient();
-  const meta = await client.spreadsheets.get({ spreadsheetId: SHEET_ID });
+  const meta = await client.spreadsheets.get({ spreadsheetId: sheetId() });
   const existingTitles = new Set(
     (meta.data.sheets || [])
       .map((s) => s.properties?.title)
@@ -412,14 +486,14 @@ export async function ensureTabs(): Promise<{
 
   if (requests.length > 0) {
     await client.spreadsheets.batchUpdate({
-      spreadsheetId: SHEET_ID,
+      spreadsheetId: sheetId(),
       requestBody: { requests },
     });
     // Write headers for newly created tabs.
     for (const tab of created) {
       const headers = TAB_SCHEMAS[tab];
       await client.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
+        spreadsheetId: sheetId(),
         range: `${tab}!A1`,
         valueInputOption: "RAW",
         requestBody: { values: [Array.from(headers)] },
@@ -439,7 +513,7 @@ export async function appendRows(
 ): Promise<void> {
   const client = sheetsClient();
   await client.spreadsheets.values.append({
-    spreadsheetId: SHEET_ID,
+    spreadsheetId: sheetId(),
     range: `${tab}!A1`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: rows },
