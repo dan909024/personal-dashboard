@@ -50,6 +50,7 @@ export const TAB_SCHEMAS = {
     "RHR",
     "HRV",
   ],
+  "Whoop Tokens": ["access_token", "refresh_token", "expires_at", "updated_at"],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -92,7 +93,15 @@ function decodeVercelEnvJson(raw: string): string {
       }
       if (c === '"') {
         inString = false;
+        out += c;
+        i++;
+        continue;
       }
+      // Case B: literal control chars inside a string literal must
+      // become their JSON escapes; otherwise JSON.parse rejects.
+      if (c === "\n") { out += "\\n"; i++; continue; }
+      if (c === "\r") { out += "\\r"; i++; continue; }
+      if (c === "\t") { out += "\\t"; i++; continue; }
       out += c;
       i++;
       continue;
@@ -379,6 +388,44 @@ export const getCoachNotes = unstable_cache(
   { revalidate: 30 }
 );
 
+export const getLatestWhoopDaily = unstable_cache(
+  async (): Promise<WhoopDaily | null> => {
+    const rows = await readTab("Whoop Daily");
+    if (!rows || rows.length < 2) return null;
+    let best: WhoopDaily | null = null;
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      const d = normalizeDate(r[0]);
+      if (!d) continue;
+      const candidate: WhoopDaily = {
+        date: d,
+        recovery: String(r[1] ?? ""),
+        strain: String(r[2] ?? ""),
+        sleep: String(r[3] ?? ""),
+        wakeTime: String(r[4] ?? ""),
+        bedTime: String(r[5] ?? ""),
+        rhr: String(r[6] ?? ""),
+        hrv: String(r[7] ?? ""),
+      };
+      if (!best || candidate.date > best.date) best = candidate;
+    }
+    return best;
+  },
+  ["dashboard:whoop:latest"],
+  { revalidate: 30 }
+);
+
+/** Returns true if the Whoop Tokens tab has a populated token row. */
+export const isWhoopConnected = unstable_cache(
+  async (): Promise<boolean> => {
+    const t = await getWhoopTokens();
+    return Boolean(t && t.accessToken && t.refreshToken);
+  },
+  ["dashboard:whoop:connected"],
+  { revalidate: 30 }
+);
+
 export const getWhoopDaily = unstable_cache(
   async (date?: string): Promise<WhoopDaily | null> => {
     const rows = await readTab("Whoop Daily");
@@ -518,4 +565,154 @@ export async function appendRows(
     valueInputOption: "USER_ENTERED",
     requestBody: { values: rows },
   });
+}
+
+// ---------- Whoop token storage ----------
+//
+// The Whoop Tokens tab holds at most ONE row of credentials at A2:D2.
+// Reads bypass unstable_cache because we need fresh values immediately
+// after a refresh. Same reason we don't cache the upsert path either.
+
+export type WhoopTokens = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number; // ms epoch
+  updatedAt: string; // ISO string
+};
+
+export async function getWhoopTokens(): Promise<WhoopTokens | null> {
+  if (!isConfigured()) return null;
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Whoop Tokens!A2:D2",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const row = (res.data.values || [])[0];
+    if (!row || !row[0] || !row[1]) return null;
+    const expiresAt = Number(row[2]);
+    return {
+      accessToken: String(row[0]),
+      refreshToken: String(row[1]),
+      expiresAt: Number.isFinite(expiresAt) ? expiresAt : 0,
+      updatedAt: String(row[3] || ""),
+    };
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) {
+      return null;
+    }
+    console.error("[sheets] error reading Whoop Tokens:", msg);
+    return null;
+  }
+}
+
+export async function saveWhoopTokens(t: {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+}): Promise<void> {
+  const client = sheetsClient();
+  const updatedAt = new Date().toISOString();
+  // Make sure the tab exists before updating. If a previous init-sheet
+  // run predates Phase 2B, the Whoop Tokens tab won't be there yet —
+  // auto-create it so the OAuth callback Just Works.
+  await ensureTab("Whoop Tokens");
+  await client.spreadsheets.values.update({
+    spreadsheetId: sheetId(),
+    range: "Whoop Tokens!A2:D2",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[t.accessToken, t.refreshToken, t.expiresAt, updatedAt]],
+    },
+  });
+}
+
+/**
+ * Idempotently ensure a single tab exists with its header row.
+ * Cheaper than calling ensureTabs() when only one tab matters.
+ */
+async function ensureTab(tab: TabName): Promise<void> {
+  const client = sheetsClient();
+  const id = sheetId();
+  const meta = await client.spreadsheets.get({ spreadsheetId: id });
+  const titles = new Set(
+    (meta.data.sheets || [])
+      .map((s) => s.properties?.title)
+      .filter((t): t is string => Boolean(t))
+  );
+  if (titles.has(tab)) return;
+  await client.spreadsheets.batchUpdate({
+    spreadsheetId: id,
+    requestBody: { requests: [{ addSheet: { properties: { title: tab } } }] },
+  });
+  await client.spreadsheets.values.update({
+    spreadsheetId: id,
+    range: `${tab}!A1`,
+    valueInputOption: "RAW",
+    requestBody: { values: [Array.from(TAB_SCHEMAS[tab])] },
+  });
+}
+
+// ---------- Whoop Daily upsert ----------
+
+export type WhoopDailyRow = {
+  date: string;
+  recovery: number | string;
+  strain: number | string;
+  sleepHours: number | string;
+  wakeTime: string;
+  bedTime: string;
+  rhr: number | string;
+  hrv: number | string;
+};
+
+/**
+ * Upsert a row in the Whoop Daily tab keyed by Date (column A).
+ * If a row with the given date exists, replace it; otherwise append.
+ */
+export async function upsertWhoopDaily(row: WhoopDailyRow): Promise<{ action: "appended" | "updated"; rowIndex: number }> {
+  const client = sheetsClient();
+  const id = sheetId();
+  const get = await client.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: "Whoop Daily!A1:Z",
+    valueRenderOption: "UNFORMATTED_VALUE",
+    dateTimeRenderOption: "FORMATTED_STRING",
+  });
+  const rows = (get.data.values || []) as (string | number)[][];
+  const values = [
+    row.date,
+    row.recovery,
+    row.strain,
+    row.sleepHours,
+    row.wakeTime,
+    row.bedTime,
+    row.rhr,
+    row.hrv,
+  ];
+  // Find a matching date row (skip header at index 0)
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const d = normalizeDate(r[0] as string | number | undefined);
+    if (d === row.date) {
+      const sheetRow = i + 1; // 1-indexed
+      await client.spreadsheets.values.update({
+        spreadsheetId: id,
+        range: `Whoop Daily!A${sheetRow}:H${sheetRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [values] },
+      });
+      return { action: "updated", rowIndex: sheetRow };
+    }
+  }
+  // Append
+  await client.spreadsheets.values.append({
+    spreadsheetId: id,
+    range: "Whoop Daily!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values] },
+  });
+  return { action: "appended", rowIndex: rows.length + 1 };
 }
