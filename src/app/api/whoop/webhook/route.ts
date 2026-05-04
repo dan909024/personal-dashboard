@@ -8,11 +8,13 @@
  *     if wake/bed time or sleep duration changed, append a Sleep Edits
  *     row + email Harley with the diff.
  *
- * Signature verification: Whoop sends `X-WHOOP-Signature` (base64
- * HMAC-SHA256) and `X-WHOOP-Signature-Timestamp`. We verify against
- * WHOOP_WEBHOOK_SECRET if it's set; if missing we log a warning and
- * accept the request (graceful degrade — we never want a misconfigured
- * secret to silently drop legitimate edit signals).
+ * Signature verification: Whoop V2 webhooks sign with WHOOP_CLIENT_SECRET
+ * (the same value used for the OAuth token exchange) — there is no
+ * separate webhook secret. Headers are `X-WHOOP-Signature` (base64
+ * HMAC-SHA256) and `X-WHOOP-Signature-Timestamp`. If
+ * WHOOP_CLIENT_SECRET is missing on the server we log a warning and
+ * accept the request, so a misconfigured env never silently drops
+ * legitimate edit signals.
  *
  * Always returns 200 quickly. Errors are logged but don't fail the
  * response, so Whoop doesn't retry-storm us.
@@ -190,16 +192,18 @@ export async function POST(req: NextRequest) {
 
 /**
  * Verify the webhook signature.
- * - If WHOOP_WEBHOOK_SECRET is missing, log a warning and accept (we
- *   never want a misconfigured secret to silently drop edit signals).
+ * - Whoop V2 signs webhooks with WHOOP_CLIENT_SECRET (same value used
+ *   for OAuth token exchange). There is no separate webhook secret.
+ * - If WHOOP_CLIENT_SECRET is missing, log a warning and accept (we
+ *   never want a misconfigured env to silently drop edit signals).
  * - Otherwise compute HMAC-SHA256(timestamp + body) using the secret,
  *   base64-encode, compare in constant time.
  */
 function verifySignature(req: NextRequest, rawBody: string): boolean {
-  const secret = process.env.WHOOP_WEBHOOK_SECRET || "";
+  const secret = process.env.WHOOP_CLIENT_SECRET || "";
   if (!secret) {
     console.warn(
-      "[whoop-webhook] WHOOP_WEBHOOK_SECRET not set — accepting unsigned webhook."
+      "[whoop-webhook] WHOOP_CLIENT_SECRET not set — accepting unsigned webhook."
     );
     return true;
   }
