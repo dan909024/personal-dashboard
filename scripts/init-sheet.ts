@@ -10,8 +10,24 @@
  *
  * Idempotent: re-running only adds missing tabs / does not overwrite data.
  */
-import { config } from "dotenv";
-config({ path: ".env.local" });
+// Custom .env.local loader. The default `dotenv` package (and node's
+// --env-file flag) parses the GOOGLE_SERVICE_ACCOUNT_JSON value
+// incorrectly because Vercel CLI writes the JSON with unescaped inner
+// double quotes — dotenv terminates the value at the first inner ".
+// We read the file ourselves: `KEY="..."` per line, value taken as-is.
+import { readFileSync } from "node:fs";
+function loadDotEnvLocal(path = ".env.local"): void {
+  const content = readFileSync(path, "utf8");
+  for (const line of content.split("\n")) {
+    if (!line || line.startsWith("#")) continue;
+    const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)="(.*)"$/);
+    if (!m) continue;
+    // Always overwrite — tsx auto-loading may have populated truncated
+    // values from misparsing the JSON entry's unescaped inner quotes.
+    process.env[m[1]] = m[2];
+  }
+}
+loadDotEnvLocal();
 
 import {
   ensureTabs,
