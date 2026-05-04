@@ -13,7 +13,8 @@ import { getWhoopTokens, saveWhoopTokens } from "./sheets";
 
 const WHOOP_AUTHORIZE_URL = "https://api.prod.whoop.com/oauth/oauth2/auth";
 const WHOOP_TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token";
-const WHOOP_API_BASE = "https://api.prod.whoop.com/developer/v1";
+// Whoop API v2 — recovery and sleep moved here (v1 returns 404 for those).
+const WHOOP_API_BASE = "https://api.prod.whoop.com/developer/v2";
 
 // `offline` is REQUIRED for Whoop to return a refresh_token. Without it
 // the token endpoint returns access_token only — and the cron has no
@@ -250,13 +251,49 @@ export type BodyMeasurement = {
 
 // ---------- Range helpers ----------
 
+const USER_TIMEZONE = process.env.USER_TIMEZONE || "Australia/Sydney";
+
 /**
- * Return [start,end] ISO strings spanning the given YYYY-MM-DD calendar day in UTC.
- * Whoop expects ISO 8601; we use start-of-day to start-of-next-day.
+ * Return [start,end] UTC ISO strings spanning the user's local calendar
+ * day (defaults to Australia/Sydney). Widened by ±12h on each side so
+ * we capture sleeps that started the previous evening or recovery
+ * scores tagged shortly after midnight. Filtering down to "this day"
+ * happens later in getDailyRollup.
  */
-function dayRangeUTC(dateISO: string): { start: string; end: string } {
-  const start = new Date(dateISO + "T00:00:00Z");
-  const end = new Date(start.getTime() + 24 * 3600 * 1000);
+function dayRangeForLocalDate(dateISO: string): { start: string; end: string } {
+  // Compute local midnight as UTC by abusing Intl: ask for the offset of
+  // a fixed point in time inside USER_TIMEZONE on dateISO and apply it.
+  const localMidnightUTC = (() => {
+    // Pick noon UTC as the reference instant (avoids DST-boundary drift)
+    const ref = new Date(`${dateISO}T12:00:00Z`);
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone: USER_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    const parts = Object.fromEntries(
+      dtf.formatToParts(ref).map((p) => [p.type, p.value])
+    );
+    // Calendar date in the user's TZ at "noon UTC" — should match dateISO
+    // unless dateISO is far in the past/future in UTC, in which case we
+    // use the local-tz interpretation regardless.
+    void parts; // referenced for clarity
+    // Compute offset in minutes between UTC and the user's TZ at this instant
+    const utcStr = `${ref.getUTCFullYear()}-${String(ref.getUTCMonth() + 1).padStart(2, "0")}-${String(ref.getUTCDate()).padStart(2, "0")} ${String(ref.getUTCHours()).padStart(2, "0")}:${String(ref.getUTCMinutes()).padStart(2, "0")}`;
+    const localStr = `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+    const utcMs = Date.parse(utcStr.replace(" ", "T") + ":00Z");
+    const localMs = Date.parse(localStr.replace(" ", "T") + ":00Z");
+    const offsetMs = localMs - utcMs;
+    // Local midnight in UTC ms = parse(dateISO T00:00) in user-TZ - offset
+    const localMidnight = Date.parse(`${dateISO}T00:00:00Z`) - offsetMs;
+    return new Date(localMidnight);
+  })();
+  const start = new Date(localMidnightUTC.getTime() - 12 * 3600 * 1000);
+  const end = new Date(localMidnightUTC.getTime() + 36 * 3600 * 1000);
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
@@ -278,7 +315,7 @@ async function fetchCollection<T>(
 
 /** Recovery items overlapping the given date (UTC day). Most recent first. */
 export async function getRecovery(dateISO: string): Promise<RecoveryItem[]> {
-  const { start, end } = dayRangeUTC(dateISO);
+  const { start, end } = dayRangeForLocalDate(dateISO);
   return fetchCollection<RecoveryItem>("/recovery", {
     start,
     end,
@@ -288,13 +325,13 @@ export async function getRecovery(dateISO: string): Promise<RecoveryItem[]> {
 
 /** Cycles overlapping the given date. Most recent first. */
 export async function getCycle(dateISO: string): Promise<CycleItem[]> {
-  const { start, end } = dayRangeUTC(dateISO);
+  const { start, end } = dayRangeForLocalDate(dateISO);
   return fetchCollection<CycleItem>("/cycle", { start, end, limit: "10" });
 }
 
 /** Sleeps overlapping the given date. Most recent first. */
 export async function getSleep(dateISO: string): Promise<SleepItem[]> {
-  const { start, end } = dayRangeUTC(dateISO);
+  const { start, end } = dayRangeForLocalDate(dateISO);
   return fetchCollection<SleepItem>("/activity/sleep", {
     start,
     end,
@@ -304,7 +341,7 @@ export async function getSleep(dateISO: string): Promise<SleepItem[]> {
 
 /** Workouts overlapping the given date. */
 export async function getWorkouts(dateISO: string): Promise<WorkoutItem[]> {
-  const { start, end } = dayRangeUTC(dateISO);
+  const { start, end } = dayRangeForLocalDate(dateISO);
   return fetchCollection<WorkoutItem>("/activity/workout", {
     start,
     end,
@@ -341,13 +378,38 @@ function fmtClock(d: Date): string {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "Australia/Sydney",
+    timeZone: USER_TIMEZONE,
   });
 }
 
+/** YYYY-MM-DD calendar date of the given instant in the user's TZ. */
+function localDateOf(d: Date): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: USER_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .formatToParts(d)
+      .map((p) => [p.type, p.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 /**
- * Build a single Whoop Daily row for `dateISO` by pulling Recovery + Cycle
- * + Sleep in parallel and picking the most-recent score for each.
+ * Build a single Whoop Daily row for `dateISO` (a YYYY-MM-DD calendar
+ * day in the user's local TZ).
+ *
+ * Whoop's "cycle" runs bed-to-bed, not midnight-to-midnight, so we map:
+ *   - cycle for day D = cycle whose end (next bedtime) falls on day D
+ *   - sleep for day D = the non-nap sleep whose end (wake time) falls
+ *     on day D
+ *   - recovery for day D = the recovery whose cycle_id matches the
+ *     chosen cycle (Whoop computes this once per cycle from that
+ *     cycle's preceding sleep)
+ * Strain ties are broken by max value (defensive — Whoop usually
+ * returns one cycle per day in the picked window).
  */
 export async function getDailyRollup(dateISO: string): Promise<DailyRollup> {
   const [recoveries, cycles, sleeps] = await Promise.all([
@@ -365,28 +427,36 @@ export async function getDailyRollup(dateISO: string): Promise<DailyRollup> {
     }),
   ]);
 
-  // Latest recovery for the day
-  const r = recoveries[0];
-  const recoveryScore = r?.score?.recovery_score;
-  const rhr = r?.score?.resting_heart_rate;
-  const hrv = r?.score?.hrv_rmssd_milli;
-
-  // Highest strain cycle for the day (cycles roll over at the user's
-  // local "day-start" time so multiple may overlap; pick the max)
-  const strain = cycles
-    .map((c) => c?.score?.strain)
-    .filter((s): s is number => typeof s === "number")
-    .reduce<number | undefined>((acc, s) => (acc === undefined || s > acc ? s : acc), undefined);
-
-  // Pick the longest non-nap sleep that ended on this date, else longest
-  const dayStart = new Date(dateISO + "T00:00:00Z").getTime();
-  const dayEnd = dayStart + 24 * 3600 * 1000;
-  const validSleeps = sleeps.filter((s) => !s.nap && s.start && s.end);
-  const sleepCandidates = validSleeps.filter((s) => {
-    const e = new Date(s.end).getTime();
-    return e >= dayStart && e <= dayEnd + 6 * 3600 * 1000;
+  // --- Cycle for day D ---
+  // Match by end-date in user TZ. If end is null (cycle still running
+  // at fetch time), match by start-date == D. Tie-break by max strain.
+  const dayCycles = cycles.filter((c) => {
+    const endDate = c.end ? localDateOf(new Date(c.end)) : null;
+    if (endDate === dateISO) return true;
+    if (!c.end && c.start && localDateOf(new Date(c.start)) === dateISO) return true;
+    return false;
   });
-  const chosenSleep = (sleepCandidates.length ? sleepCandidates : validSleeps)
+  const chosenCycle =
+    dayCycles
+      .slice()
+      .sort((a, b) => (b.score?.strain ?? -1) - (a.score?.strain ?? -1))[0] ||
+    undefined;
+  const strain = chosenCycle?.score?.strain;
+
+  // --- Recovery for that cycle ---
+  const recovery = chosenCycle
+    ? recoveries.find((r) => r.cycle_id === chosenCycle.id)
+    : undefined;
+  const recoveryScore = recovery?.score?.recovery_score;
+  const rhr = recovery?.score?.resting_heart_rate;
+  const hrv = recovery?.score?.hrv_rmssd_milli;
+
+  // --- Sleep for day D: non-nap sleep whose end is on day D in user TZ ---
+  const validSleeps = sleeps.filter((s) => !s.nap && s.start && s.end);
+  const dayEndedSleeps = validSleeps.filter(
+    (s) => localDateOf(new Date(s.end)) === dateISO
+  );
+  const chosenSleep = (dayEndedSleeps.length ? dayEndedSleeps : validSleeps)
     .slice()
     .sort((a, b) => {
       const aDur = new Date(a.end).getTime() - new Date(a.start).getTime();
@@ -398,8 +468,9 @@ export async function getDailyRollup(dateISO: string): Promise<DailyRollup> {
   let wakeTime = "";
   let bedTime = "";
   if (chosenSleep) {
-    const ms = new Date(chosenSleep.end).getTime() - new Date(chosenSleep.start).getTime();
-    sleepHours = Math.round((ms / 3600000) * 10) / 10; // 1 decimal
+    const ms =
+      new Date(chosenSleep.end).getTime() - new Date(chosenSleep.start).getTime();
+    sleepHours = Math.round((ms / 3600000) * 10) / 10;
     bedTime = fmtClock(new Date(chosenSleep.start));
     wakeTime = fmtClock(new Date(chosenSleep.end));
   }
