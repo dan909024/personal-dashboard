@@ -15,7 +15,11 @@ const WHOOP_AUTHORIZE_URL = "https://api.prod.whoop.com/oauth/oauth2/auth";
 const WHOOP_TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token";
 const WHOOP_API_BASE = "https://api.prod.whoop.com/developer/v1";
 
+// `offline` is REQUIRED for Whoop to return a refresh_token. Without it
+// the token endpoint returns access_token only — and the cron has no
+// way to refresh, so we'd silently lose access after ~1h.
 export const WHOOP_SCOPES = [
+  "offline",
   "read:recovery",
   "read:cycles",
   "read:sleep",
