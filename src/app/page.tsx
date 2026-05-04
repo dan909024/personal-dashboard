@@ -1,9 +1,10 @@
 import {
   getOpenTasks,
   getPunishments,
-  getWhoopDaily,
+  getLatestWhoopDaily,
   getHarleyMeter,
   isConfigured,
+  isWhoopConnected,
 } from "@/lib/sheets";
 
 // Revalidate the page every 30s in production.
@@ -49,15 +50,23 @@ function fmtTime(d: Date): string {
 
 // ---------- Page ----------
 
-export default async function Dashboard() {
+type DashboardSearchParams = Promise<{ whoop?: string; whoop_error?: string }>;
+
+export default async function Dashboard({
+  searchParams,
+}: {
+  searchParams?: DashboardSearchParams;
+}) {
   const configured = isConfigured();
+  const params = searchParams ? await searchParams : {};
 
   // Fetch in parallel; each function is internally cached (30s).
-  const [openTasks, punishments, whoop, harley] = await Promise.all([
+  const [openTasks, punishments, whoop, harley, whoopConnected] = await Promise.all([
     configured ? getOpenTasks(3) : Promise.resolve([]),
     configured ? getPunishments() : Promise.resolve([]),
-    configured ? getWhoopDaily() : Promise.resolve(null),
+    configured ? getLatestWhoopDaily() : Promise.resolve(null),
     configured ? getHarleyMeter() : Promise.resolve(0),
+    configured ? isWhoopConnected() : Promise.resolve(false),
   ]);
 
   const owedThisWeek = punishments.reduce((sum, p) => sum + (p.paid ? 0 : p.amount), 0);
@@ -82,6 +91,18 @@ export default async function Dashboard() {
             {" "}<code className="bg-black/30 px-1">SHEET_ID</code>, and
             {" "}<code className="bg-black/30 px-1">DRIVE_FOLDER_ID</code> in Vercel env, then
             redeploy. Showing placeholder data until then.
+          </div>
+        )}
+
+        {/* Whoop OAuth flash messages */}
+        {params.whoop === "connected" && (
+          <div className="w-full bg-emerald-900/80 backdrop-blur-sm border-b border-emerald-700 px-4 py-2 text-xs text-emerald-100">
+            <span className="font-bold">CONNECTED TO WHOOP ✅</span> &middot; First sync runs at the next cron tick (08:00 AEST) — or hit the sync endpoint manually.
+          </div>
+        )}
+        {params.whoop_error && (
+          <div className="w-full bg-red-900/80 backdrop-blur-sm border-b border-red-700 px-4 py-2 text-xs text-red-100">
+            <span className="font-bold">WHOOP ERROR:</span> {params.whoop_error}
           </div>
         )}
 
@@ -118,42 +139,51 @@ export default async function Dashboard() {
         <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
           {/* Row 1 */}
           <Tile title="WHOOP">
-            {whoop ? (
+            {whoop && whoop.recovery ? (
               <>
                 <Stat
                   label="Recovery"
-                  value={whoop.recovery ? `${whoop.recovery}%` : "—"}
-                  color="text-amber-400"
+                  value={`${whoop.recovery}%`}
+                  color={recoveryColor(Number(whoop.recovery))}
                 />
                 <Stat label="Strain" value={whoop.strain || "—"} />
-                <Stat label="Sleep" value={whoop.sleep || "—"} />
+                <Stat label="Sleep" value={fmtSleep(whoop.sleep)} />
               </>
-            ) : configured ? (
-              <NoData />
-            ) : (
+            ) : !configured ? (
               <>
                 <Stat label="Recovery" value="72%" color="text-amber-400" />
                 <Stat label="Strain" value="14" />
                 <Stat label="Sleep" value="7h 12m" />
               </>
+            ) : !whoopConnected ? (
+              <ConnectWhoopCta />
+            ) : (
+              <NoData />
             )}
           </Tile>
 
           <Tile title="ROUTINE">
             {whoop && (whoop.wakeTime || whoop.bedTime) ? (
               <>
-                <StatRow label="Wake" value={whoop.wakeTime || "—"} />
+                <StatRow
+                  label="Wake"
+                  value={whoop.wakeTime || "—"}
+                  badge={wakeBadge(whoop.wakeTime)}
+                  badgeColor={wakeBadge(whoop.wakeTime) === "✅" ? "text-green-400" : "text-amber-400"}
+                />
                 <StatRow label="Bed" value={whoop.bedTime || "—"} />
                 <StatRow label="Steps" value="—" />
               </>
-            ) : configured ? (
-              <NoData />
-            ) : (
+            ) : !configured ? (
               <>
                 <StatRow label="Wake" value="06:08" badge="-$10" badgeColor="text-red-400" />
                 <StatRow label="Bed" value="22:45" badge="-$15" badgeColor="text-red-400" />
                 <StatRow label="Steps" value="8,420" badge="-$15" badgeColor="text-red-400" />
               </>
+            ) : !whoopConnected ? (
+              <ConnectWhoopCta />
+            ) : (
+              <NoData />
             )}
           </Tile>
 
@@ -285,6 +315,33 @@ export default async function Dashboard() {
   );
 }
 
+// ---------- Helpers (UI) ----------
+
+function recoveryColor(score: number): string {
+  if (!Number.isFinite(score)) return "text-zinc-300";
+  if (score < 34) return "text-red-400";
+  if (score <= 66) return "text-amber-400";
+  return "text-green-400";
+}
+
+function wakeBadge(wake: string): string | undefined {
+  // wake stored as HH:mm 24h. Rule: <06:30 = ✅, otherwise ⚠
+  if (!wake) return undefined;
+  const m = wake.match(/^(\d{2}):(\d{2})$/);
+  if (!m) return undefined;
+  const minutes = Number(m[1]) * 60 + Number(m[2]);
+  return minutes < 6 * 60 + 30 ? "✅" : "⚠";
+}
+
+function fmtSleep(sleep: string): string {
+  if (!sleep) return "—";
+  const n = Number(sleep);
+  if (!Number.isFinite(n)) return sleep;
+  const h = Math.floor(n);
+  const m = Math.round((n - h) * 60);
+  return `${h}h ${String(m).padStart(2, "0")}m`;
+}
+
 // ---------- Components ----------
 
 function Tile({ title, children }: { title: string; children: React.ReactNode }) {
@@ -295,6 +352,17 @@ function Tile({ title, children }: { title: string; children: React.ReactNode })
       </p>
       {children}
     </div>
+  );
+}
+
+function ConnectWhoopCta() {
+  return (
+    <a
+      href="/api/whoop/connect"
+      className="inline-block mt-1 px-3 py-2 border border-emerald-700 bg-emerald-900/40 text-emerald-200 text-xs uppercase tracking-widest hover:border-emerald-500 hover:bg-emerald-800/60 transition-colors"
+    >
+      Connect Whoop →
+    </a>
   );
 }
 
