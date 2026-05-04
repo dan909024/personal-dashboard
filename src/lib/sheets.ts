@@ -590,7 +590,17 @@ export async function getWhoopTokens(): Promise<WhoopTokens | null> {
       valueRenderOption: "UNFORMATTED_VALUE",
     });
     const row = (res.data.values || [])[0];
-    if (!row || !row[0] || !row[1]) return null;
+    if (!row || !row[0]) return null;
+    if (!row[1]) {
+      // Access token without refresh token. Whoop only issues refresh
+      // tokens when the `offline` scope is requested — older OAuth
+      // sessions before that scope was added end up here. The user
+      // needs to reconnect via /api/whoop/connect.
+      console.warn(
+        "[sheets] Whoop Tokens row has access_token but no refresh_token. Reconnect via /api/whoop/connect (the 'offline' scope is now requested)."
+      );
+      return null;
+    }
     const expiresAt = Number(row[2]);
     return {
       accessToken: String(row[0]),
