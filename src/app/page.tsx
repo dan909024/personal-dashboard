@@ -5,6 +5,10 @@ import {
   getHarleyMeter,
   isConfigured,
   isWhoopConnected,
+  getDashboardSystemHealth,
+  getRecentSleepEdits,
+  type SystemHealth,
+  type SleepEdit,
 } from "@/lib/sheets";
 
 // Revalidate the page every 30s in production.
@@ -60,14 +64,17 @@ export default async function Dashboard({
   const configured = isConfigured();
   const params = searchParams ? await searchParams : {};
 
-  // Fetch in parallel; each function is internally cached (30s).
-  const [openTasks, punishments, whoop, harley, whoopConnected] = await Promise.all([
-    configured ? getOpenTasks(3) : Promise.resolve([]),
-    configured ? getPunishments() : Promise.resolve([]),
-    configured ? getLatestWhoopDaily() : Promise.resolve(null),
-    configured ? getHarleyMeter() : Promise.resolve(0),
-    configured ? isWhoopConnected() : Promise.resolve(false),
-  ]);
+  // Fetch in parallel; each function is internally cached.
+  const [openTasks, punishments, whoop, harley, whoopConnected, sysHealth, sleepEdits] =
+    await Promise.all([
+      configured ? getOpenTasks(3) : Promise.resolve([]),
+      configured ? getPunishments() : Promise.resolve([]),
+      configured ? getLatestWhoopDaily() : Promise.resolve(null),
+      configured ? getHarleyMeter() : Promise.resolve(0),
+      configured ? isWhoopConnected() : Promise.resolve(false),
+      configured ? getDashboardSystemHealth() : Promise.resolve(null),
+      configured ? getRecentSleepEdits(5) : Promise.resolve([] as SleepEdit[]),
+    ]);
 
   const owedThisWeek = punishments.reduce((sum, p) => sum + (p.paid ? 0 : p.amount), 0);
   const week = isoWeekNumber();
@@ -108,16 +115,19 @@ export default async function Dashboard({
 
         {/* Top strip */}
         <div className="w-full bg-black/60 backdrop-blur-sm border-b border-[#222] px-4 py-3">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold tracking-widest text-white uppercase">
               WEEK {week} &middot; {review.label} &middot;{" "}
               <span className="text-red-400">
                 OWED THIS WEEK: ${configured ? owedThisWeek : 135}
               </span>
             </p>
-            <p className="text-[10px] text-zinc-500 uppercase tracking-widest shrink-0">
-              Updated {lastUpdated}
-            </p>
+            <div className="flex items-center gap-3 shrink-0">
+              <SystemHealthPill health={sysHealth} configured={configured} />
+              <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
+                Updated {lastUpdated}
+              </p>
+            </div>
           </div>
           <div className="mt-2 flex flex-wrap gap-4">
             {(configured && openTasks.length > 0
@@ -278,6 +288,16 @@ export default async function Dashboard({
           </Tile>
         </div>
 
+        {/* Recent sleep edits */}
+        <div className="px-4 pb-4">
+          <div className="border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4">
+            <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
+              RECENT SLEEP EDITS
+            </p>
+            <SleepEditsList edits={sleepEdits} configured={configured} />
+          </div>
+        </div>
+
         {/* Proof Drops embed */}
         <div className="px-4 pb-4">
           <div className="border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4">
@@ -424,4 +444,117 @@ function BottomLink({ label, href }: { label: string; href: string }) {
       {label}
     </a>
   );
+}
+
+// ---------- Phase 2C components ----------
+
+function SystemHealthPill({
+  health,
+  configured,
+}: {
+  health: SystemHealth | null;
+  configured: boolean;
+}) {
+  if (!configured) {
+    return (
+      <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-zinc-500">
+        <span className="w-2 h-2 rounded-full bg-zinc-500 inline-block" />
+        unconfigured
+      </span>
+    );
+  }
+  if (!health) {
+    return (
+      <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-zinc-500">
+        <span className="w-2 h-2 rounded-full bg-zinc-500 inline-block" />
+        no heartbeat yet
+      </span>
+    );
+  }
+  const ageMin = ageMinutes(health.timestamp);
+  const stale = ageMin === null || ageMin > 15;
+  let dotColor = "bg-green-500";
+  let label = "healthy";
+  if (!health.heartbeatOk || stale) {
+    dotColor = "bg-red-500";
+    label = !health.heartbeatOk ? "broken" : "stale";
+  } else if (health.recentSleepEdits > 0) {
+    dotColor = "bg-amber-400";
+    label = `${health.recentSleepEdits} edit${health.recentSleepEdits === 1 ? "" : "s"}`;
+  }
+  return (
+    <span
+      className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-zinc-300"
+      title={`heartbeat ${ageMin ?? "?"}min ago | whoop ${health.whoopOk ? "ok" : "stale"} | sleep edits 24h: ${health.recentSleepEdits}`}
+    >
+      <span className={`w-2 h-2 rounded-full ${dotColor} inline-block`} />
+      {label} &middot; {ageMin === null ? "?" : `${ageMin}m ago`}
+    </span>
+  );
+}
+
+function ageMinutes(iso: string): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (isNaN(t)) return null;
+  return Math.max(0, Math.round((Date.now() - t) / 60000));
+}
+
+function SleepEditsList({
+  edits,
+  configured,
+}: {
+  edits: SleepEdit[];
+  configured: boolean;
+}) {
+  if (!configured) {
+    return <p className="text-xs text-zinc-500 italic">unconfigured</p>;
+  }
+  // Filter to last 7 days
+  const sevenDaysAgo = Date.now() - 7 * 24 * 3600 * 1000;
+  const recent = edits.filter((e) => {
+    const t = Date.parse(e.detectedAt);
+    return !isNaN(t) && t >= sevenDaysAgo;
+  });
+  if (recent.length === 0) {
+    return (
+      <p className="text-xs text-green-400">No recent edits ✅</p>
+    );
+  }
+  return (
+    <div className="space-y-1.5">
+      {recent.map((e, i) => (
+        <div
+          key={`${e.detectedAt}-${i}`}
+          className="flex flex-wrap items-center gap-2 text-xs text-zinc-300"
+        >
+          <span className="text-zinc-500 shrink-0 tabular-nums">
+            {fmtDetectedAt(e.detectedAt)}
+          </span>
+          <span className="text-zinc-400 uppercase tracking-wider text-[10px] shrink-0">
+            {e.fieldChanged}
+          </span>
+          <span className="font-mono">
+            <span className="text-red-300">{e.oldValue || "—"}</span>
+            <span className="text-zinc-600"> → </span>
+            <span className="text-green-300">{e.newValue || "—"}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function fmtDetectedAt(iso: string): string {
+  const t = Date.parse(iso);
+  if (isNaN(t)) return iso || "—";
+  const d = new Date(t);
+  const date = d.toLocaleDateString("en-AU", { day: "2-digit", month: "short", timeZone: "Australia/Sydney" });
+  const time = d.toLocaleTimeString("en-AU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Australia/Sydney",
+  });
+  return `${date} ${time}`;
 }
