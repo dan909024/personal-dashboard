@@ -9,12 +9,13 @@
  *       → CloudMailin POSTs JSON here
  *         → we parse + append a row to "Amex Transactions" sheet
  *
- * Auth: shared secret in AMEX_INGEST_SECRET, sent as
- *   Authorization: Bearer <secret>
- *
- * The provider should be configured to include this header on every POST.
- * (CloudMailin: per-target custom headers. Postmark: webhook auth. Resend:
- * Authorization header on inbound webhooks.)
+ * Auth: shared secret in AMEX_INGEST_SECRET. Two accepted formats:
+ *   - Authorization: Bearer <secret>   — Postmark, Resend, anything that
+ *     supports custom headers.
+ *   - Authorization: Basic base64(<any>:<secret>)  — CloudMailin Free,
+ *     which does basic auth via target URL credentials. Configure target
+ *     as https://amex:<secret>@.../api/amex/inbound; the username is
+ *     ignored, only the password must equal AMEX_INGEST_SECRET.
  *
  * Idempotency: we dedupe by RFC822 Message-ID (column G in the sheet).
  * Inbound providers retry on non-2xx, so duplicate deliveries WILL happen.
@@ -292,12 +293,37 @@ function bad(reason: string, status = 400) {
   return NextResponse.json({ ok: false, error: reason }, { status });
 }
 
+/**
+ * Extract the secret from an Authorization header. Supports:
+ *   - "Bearer <secret>"        → returns <secret>
+ *   - "Basic base64(<u>:<p>)"  → returns <p> (password); username ignored
+ * Returns "" if the header is missing or unparseable.
+ */
+function extractAuthSecret(authHeader: string): string {
+  if (authHeader.startsWith("Bearer ")) {
+    return authHeader.slice("Bearer ".length).trim();
+  }
+  if (authHeader.startsWith("Basic ")) {
+    const b64 = authHeader.slice("Basic ".length).trim();
+    try {
+      const decoded = Buffer.from(b64, "base64").toString("utf8");
+      const colonIdx = decoded.indexOf(":");
+      // Username before first colon is ignored; everything after is the
+      // secret. This way users can put any username in the URL credentials.
+      return colonIdx === -1 ? "" : decoded.slice(colonIdx + 1);
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
 export async function POST(req: NextRequest) {
   const expected = process.env.AMEX_INGEST_SECRET || "";
   if (!expected) return bad("AMEX_INGEST_SECRET not configured", 500);
 
   const auth = req.headers.get("authorization") || "";
-  const provided = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+  const provided = extractAuthSecret(auth);
   if (provided !== expected) return bad("bad_secret", 401);
 
   if (!isConfigured()) return bad("sheets_not_configured", 500);
