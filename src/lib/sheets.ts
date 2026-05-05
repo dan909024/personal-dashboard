@@ -51,6 +51,22 @@ export const TAB_SCHEMAS = {
     "HRV",
   ],
   "Whoop Tokens": ["access_token", "refresh_token", "expires_at", "updated_at"],
+  "System Health": [
+    "Timestamp",
+    "Heartbeat OK",
+    "Whoop OK",
+    "Last Whoop sync",
+    "Recent sleep edits",
+    "Notes",
+  ],
+  "Sleep Edits": [
+    "Detected at",
+    "Sleep ID",
+    "Field changed",
+    "Old value",
+    "New value",
+    "Source",
+  ],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -726,3 +742,172 @@ export async function upsertWhoopDaily(row: WhoopDailyRow): Promise<{ action: "a
   });
   return { action: "appended", rowIndex: rows.length + 1 };
 }
+
+// ---------- Phase 2C: System Health + Sleep Edits ----------
+
+export type SystemHealth = {
+  timestamp: string;
+  heartbeatOk: boolean;
+  whoopOk: boolean;
+  lastWhoopSync: string;
+  recentSleepEdits: number;
+  notes: string;
+};
+
+export type SleepEdit = {
+  detectedAt: string;
+  sleepId: string;
+  fieldChanged: string;
+  oldValue: string;
+  newValue: string;
+  source: string;
+};
+
+export async function appendSystemHealth(s: SystemHealth): Promise<void> {
+  const client = sheetsClient();
+  await ensureTab("System Health");
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "System Health!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[
+        s.timestamp,
+        s.heartbeatOk ? "yes" : "no",
+        s.whoopOk ? "yes" : "no",
+        s.lastWhoopSync,
+        s.recentSleepEdits,
+        s.notes,
+      ]],
+    },
+  });
+}
+
+export async function appendSleepEdit(e: SleepEdit): Promise<void> {
+  const client = sheetsClient();
+  await ensureTab("Sleep Edits");
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Sleep Edits!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[
+        e.detectedAt,
+        e.sleepId,
+        e.fieldChanged,
+        e.oldValue,
+        e.newValue,
+        e.source,
+      ]],
+    },
+  });
+}
+
+/**
+ * Most recent System Health row, or null if tab is empty / missing.
+ * Not cached — heartbeat caller wants a fresh read every tick.
+ */
+export async function getLatestSystemHealth(): Promise<SystemHealth | null> {
+  if (!isConfigured()) return null;
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "System Health!A1:F",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const rows = (res.data.values || []) as (string | number)[][];
+    if (rows.length < 2) return null;
+    const r = rows[rows.length - 1];
+    return {
+      timestamp: String(r[0] ?? ""),
+      heartbeatOk: isTruthy(String(r[1] ?? "")),
+      whoopOk: isTruthy(String(r[2] ?? "")),
+      lastWhoopSync: String(r[3] ?? ""),
+      recentSleepEdits: Number(r[4] ?? 0) || 0,
+      notes: String(r[5] ?? ""),
+    };
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return null;
+    console.error("[sheets] error reading System Health:", msg);
+    return null;
+  }
+}
+
+/** Returns ALL System Health rows newest first — used for alert dedupe. */
+export async function getSystemHealthHistory(limit = 200): Promise<SystemHealth[]> {
+  if (!isConfigured()) return [];
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "System Health!A1:F",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const rows = (res.data.values || []) as (string | number)[][];
+    if (rows.length < 2) return [];
+    const out: SystemHealth[] = [];
+    for (let i = rows.length - 1; i >= 1 && out.length < limit; i--) {
+      const r = rows[i] || [];
+      out.push({
+        timestamp: String(r[0] ?? ""),
+        heartbeatOk: isTruthy(String(r[1] ?? "")),
+        whoopOk: isTruthy(String(r[2] ?? "")),
+        lastWhoopSync: String(r[3] ?? ""),
+        recentSleepEdits: Number(r[4] ?? 0) || 0,
+        notes: String(r[5] ?? ""),
+      });
+    }
+    return out;
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return [];
+    console.error("[sheets] error reading System Health history:", msg);
+    return [];
+  }
+}
+
+export const getRecentSleepEdits = unstable_cache(
+  async (limit = 5): Promise<SleepEdit[]> => {
+    if (!isConfigured()) return [];
+    try {
+      const client = sheetsClient();
+      const res = await client.spreadsheets.values.get({
+        spreadsheetId: sheetId(),
+        range: "Sleep Edits!A1:F",
+        valueRenderOption: "UNFORMATTED_VALUE",
+      });
+      const rows = (res.data.values || []) as (string | number)[][];
+      if (rows.length < 2) return [];
+      const out: SleepEdit[] = [];
+      for (let i = rows.length - 1; i >= 1 && out.length < limit; i--) {
+        const r = rows[i] || [];
+        if (!r[0]) continue;
+        out.push({
+          detectedAt: String(r[0] ?? ""),
+          sleepId: String(r[1] ?? ""),
+          fieldChanged: String(r[2] ?? ""),
+          oldValue: String(r[3] ?? ""),
+          newValue: String(r[4] ?? ""),
+          source: String(r[5] ?? ""),
+        });
+      }
+      return out;
+    } catch (e) {
+      const msg = (e as Error).message || "";
+      if (msg.includes("Unable to parse range") || msg.includes("not found")) return [];
+      console.error("[sheets] error reading Sleep Edits:", msg);
+      return [];
+    }
+  },
+  ["dashboard:sleep-edits:recent"],
+  { revalidate: 60 }
+);
+
+/** Cached read of latest System Health for the dashboard tile. */
+export const getDashboardSystemHealth = unstable_cache(
+  async (): Promise<SystemHealth | null> => getLatestSystemHealth(),
+  ["dashboard:system-health"],
+  { revalidate: 60 }
+);
