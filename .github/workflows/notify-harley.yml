@@ -33,7 +33,7 @@ jobs:
             --arg url "$COMMIT_URL" \
             --arg sha "$short_sha" \
             '{
-              from: "Personal Dashboard <alerts@resend.dev>",
+              from: "Personal Dashboard <onboarding@resend.dev>",
               to: [$to],
               subject: "Dan deployed to personal-dashboard",
               html: ("<p><strong>Author:</strong> " + $author + "</p>"
