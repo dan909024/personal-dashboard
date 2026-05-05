@@ -51,6 +51,17 @@ export const TAB_SCHEMAS = {
     "HRV",
   ],
   "Whoop Tokens": ["access_token", "refresh_token", "expires_at", "updated_at"],
+  "Amex Transactions": [
+    "Date",
+    "Type",
+    "Merchant",
+    "Amount",
+    "Currency",
+    "Card Last 4",
+    "Email ID",
+    "Subject",
+    "Synced at",
+  ],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -726,3 +737,135 @@ export async function upsertWhoopDaily(row: WhoopDailyRow): Promise<{ action: "a
   });
   return { action: "appended", rowIndex: rows.length + 1 };
 }
+
+// ---------- Amex Transactions ----------
+//
+// Append-only event log fed by /api/amex/inbound. Each row is one
+// parsed Amex alert email. Email ID (RFC822 Message-ID) is the dedupe
+// key — the inbound route checks for an existing row before appending.
+// Type is "charge" for spend alerts, "balance" for the weekly balance
+// summary, and "unparsed" when the parser can't extract structure (we
+// still store the row so we can fix the parser without losing data).
+
+export type AmexTransactionRow = {
+  date: string;          // YYYY-MM-DD (transaction date if known, else email received date)
+  type: "charge" | "balance" | "unparsed";
+  merchant: string;
+  amount: number;        // positive for charges, balance for "balance" type, 0 for unparsed
+  currency: string;      // typically "AUD"
+  cardLast4: string;     // "1234" or ""
+  emailId: string;       // RFC822 Message-ID — dedupe key
+  subject: string;       // original email subject for audit trail
+  syncedAt: string;      // ISO timestamp when we received it
+};
+
+export async function appendAmexTransaction(row: AmexTransactionRow): Promise<void> {
+  const client = sheetsClient();
+  await ensureTab("Amex Transactions");
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Amex Transactions!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[
+        row.date,
+        row.type,
+        row.merchant,
+        row.amount,
+        row.currency,
+        row.cardLast4,
+        row.emailId,
+        row.subject,
+        row.syncedAt,
+      ]],
+    },
+  });
+}
+
+/**
+ * Returns true if a row with this Email ID already exists. Used by the
+ * inbound route to make POSTs idempotent — inbound providers retry on
+ * non-2xx responses, so we MUST tolerate duplicate deliveries.
+ */
+export async function amexEmailIdExists(emailId: string): Promise<boolean> {
+  if (!emailId) return false;
+  if (!isConfigured()) return false;
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Amex Transactions!G2:G",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const rows = (res.data.values || []) as string[][];
+    for (const r of rows) {
+      if (r && r[0] === emailId) return true;
+    }
+    return false;
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return false;
+    console.error("[sheets] error checking amex emailId:", msg);
+    return false;
+  }
+}
+
+/**
+ * Last `days` days of Amex transactions, newest first. Excludes
+ * "balance" and "unparsed" rows by default — those are mostly diagnostic.
+ */
+export async function getRecentAmexTransactions(
+  days = 30,
+  opts: { includeBalance?: boolean; includeUnparsed?: boolean } = {}
+): Promise<AmexTransactionRow[]> {
+  if (!isConfigured()) return [];
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Amex Transactions!A1:I",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const rows = (res.data.values || []) as (string | number)[][];
+    if (rows.length < 2) return [];
+    const cutoffMs = Date.now() - days * 86400 * 1000;
+    const out: AmexTransactionRow[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      const date = normalizeDate(r[0] as string | number | undefined);
+      if (!date) continue;
+      const ms = Date.parse(date + "T12:00:00Z");
+      if (isNaN(ms) || ms < cutoffMs) continue;
+      const type = String(r[1] ?? "") as AmexTransactionRow["type"];
+      if (type === "balance" && !opts.includeBalance) continue;
+      if (type === "unparsed" && !opts.includeUnparsed) continue;
+      out.push({
+        date,
+        type,
+        merchant: String(r[2] ?? ""),
+        amount: Number(r[3] ?? 0) || 0,
+        currency: String(r[4] ?? ""),
+        cardLast4: String(r[5] ?? ""),
+        emailId: String(r[6] ?? ""),
+        subject: String(r[7] ?? ""),
+        syncedAt: String(r[8] ?? ""),
+      });
+    }
+    return out.sort((a, b) =>
+      a.syncedAt < b.syncedAt ? 1 : a.syncedAt > b.syncedAt ? -1 : 0
+    );
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return [];
+    console.error("[sheets] error reading Amex Transactions:", msg);
+    return [];
+  }
+}
+
+/** Cached read for the dashboard tile (last 30 days, charges only). */
+export const getDashboardAmex = unstable_cache(
+  async (): Promise<AmexTransactionRow[]> => getRecentAmexTransactions(30),
+  ["dashboard:amex"],
+  { revalidate: 60 }
+);
