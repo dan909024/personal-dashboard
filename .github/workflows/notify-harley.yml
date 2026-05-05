@@ -1,0 +1,46 @@
+name: Notify Harley on push to main
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Send email via Resend
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          HARLEY_EMAIL: ${{ secrets.HARLEY_EMAIL }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name }}
+          COMMIT_URL: ${{ github.event.head_commit.url }}
+        run: |
+          if [ -z "$RESEND_API_KEY" ] || [ -z "$HARLEY_EMAIL" ]; then
+            echo "RESEND_API_KEY or HARLEY_EMAIL repo secret not set — skipping."
+            exit 0
+          fi
+          short_sha="${COMMIT_SHA:0:8}"
+          # Build the JSON via jq so commit messages with quotes / newlines
+          # / backslashes don't break the request.
+          payload=$(jq -n \
+            --arg to "$HARLEY_EMAIL" \
+            --arg author "$COMMIT_AUTHOR" \
+            --arg msg "$COMMIT_MSG" \
+            --arg url "$COMMIT_URL" \
+            --arg sha "$short_sha" \
+            '{
+              from: "Personal Dashboard <onboarding@resend.dev>",
+              to: [$to],
+              subject: "Dan deployed to personal-dashboard",
+              html: ("<p><strong>Author:</strong> " + $author + "</p>"
+                  + "<p><strong>Message:</strong> " + $msg + "</p>"
+                  + "<p><strong>Commit:</strong> <a href=\"" + $url + "\">" + $sha + "</a></p>")
+            }')
+          curl -fsS -X POST https://api.resend.com/emails \
+            -H "Authorization: Bearer $RESEND_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$payload"

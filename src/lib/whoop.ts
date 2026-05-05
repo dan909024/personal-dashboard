@@ -199,7 +199,9 @@ export type CycleItem = {
 };
 
 export type SleepItem = {
-  id: number;
+  id: string | number; // v2 returns UUID string; v1 returned number
+  cycle_id?: number;
+  v1_id?: number | null;
   start: string;
   end: string;
   timezone_offset?: string;
@@ -347,6 +349,17 @@ export async function getWorkouts(dateISO: string): Promise<WorkoutItem[]> {
     end,
     limit: "25",
   });
+}
+
+/** Fetch a single sleep by ID (used by the webhook handler). */
+export async function getSleepById(sleepId: string): Promise<SleepItem | null> {
+  const res = await authedFetch(`/activity/sleep/${encodeURIComponent(sleepId)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Whoop sleep ${sleepId} ${res.status}: ${body}`);
+  }
+  return (await res.json()) as SleepItem;
 }
 
 /** Most recent body measurement (single object). */
