@@ -5,7 +5,7 @@
  * provider (CloudMailin / Postmark / Resend Inbound). The flow is:
  *
  *   Amex (alerts@welcome.americanexpress.com) → [redacted]
- *     → Gmail filter auto-forwards to <something>@cloudmailin.net
+ *     → Gmail filter auto-forwards to [redacted]
  *       → CloudMailin POSTs JSON here
  *         → we parse + append a row to "Amex Transactions" sheet
  *
