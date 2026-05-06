@@ -7,8 +7,14 @@ import {
   isWhoopConnected,
   getDashboardSystemHealth,
   getRecentSleepEdits,
+  getDashboardAppleHealth,
+  getDashboardAmexToday,
+  getBudgetMonthly,
   type SystemHealth,
   type SleepEdit,
+  type DashboardAppleHealth,
+  type DashboardAmexToday,
+  type BudgetMonthly,
 } from "@/lib/sheets";
 
 // Revalidate the page every 30s in production.
@@ -65,16 +71,33 @@ export default async function Dashboard({
   const params = searchParams ? await searchParams : {};
 
   // Fetch in parallel; each function is internally cached.
-  const [openTasks, punishments, whoop, harley, whoopConnected, sysHealth, sleepEdits] =
-    await Promise.all([
-      configured ? getOpenTasks(3) : Promise.resolve([]),
-      configured ? getPunishments() : Promise.resolve([]),
-      configured ? getLatestWhoopDaily() : Promise.resolve(null),
-      configured ? getHarleyMeter() : Promise.resolve(0),
-      configured ? isWhoopConnected() : Promise.resolve(false),
-      configured ? getDashboardSystemHealth() : Promise.resolve(null),
-      configured ? getRecentSleepEdits(5) : Promise.resolve([] as SleepEdit[]),
-    ]);
+  const [
+    openTasks,
+    punishments,
+    whoop,
+    harley,
+    whoopConnected,
+    sysHealth,
+    sleepEdits,
+    appleHealth,
+    amexToday,
+    budget,
+  ] = await Promise.all([
+    configured ? getOpenTasks(3) : Promise.resolve([]),
+    configured ? getPunishments() : Promise.resolve([]),
+    configured ? getLatestWhoopDaily() : Promise.resolve(null),
+    configured ? getHarleyMeter() : Promise.resolve(0),
+    configured ? isWhoopConnected() : Promise.resolve(false),
+    configured ? getDashboardSystemHealth() : Promise.resolve(null),
+    configured ? getRecentSleepEdits(5) : Promise.resolve([] as SleepEdit[]),
+    configured
+      ? getDashboardAppleHealth()
+      : Promise.resolve(null as DashboardAppleHealth | null),
+    configured
+      ? getDashboardAmexToday()
+      : Promise.resolve(null as DashboardAmexToday | null),
+    configured ? getBudgetMonthly() : Promise.resolve(null as BudgetMonthly | null),
+  ]);
 
   const owedThisWeek = punishments.reduce((sum, p) => sum + (p.paid ? 0 : p.amount), 0);
   const week = isoWeekNumber();
@@ -182,7 +205,10 @@ export default async function Dashboard({
                   badgeColor={wakeBadge(whoop.wakeTime) === "✅" ? "text-green-400" : "text-amber-400"}
                 />
                 <StatRow label="Bed" value={whoop.bedTime || "—"} />
-                <StatRow label="Steps" value="—" />
+                <StatRow
+                  label="Steps"
+                  value={formatStepsRoutine(appleHealth)}
+                />
               </>
             ) : !configured ? (
               <>
@@ -198,35 +224,25 @@ export default async function Dashboard({
           </Tile>
 
           <Tile title="WRITING">
-            <StatRow label="Book" value="4.2h" badge="⚠" badgeColor="text-amber-400" />
-            <StatRow label="Craft" value="2.1h" badge="⚠" badgeColor="text-amber-400" />
-            <p className="text-xs text-zinc-500 mt-2">(week so far)</p>
+            <NotTrackedYet />
           </Tile>
 
           {/* Row 2 */}
           <Tile title="GYM (LADDER)">
-            <StatRow label="Today" value="" badge="✅" />
-            <StatRow label="Streak" value="6 days" />
-            <StatRow label="Strain" value="14" badge="✅" />
+            <GymTileBody appleHealth={appleHealth} configured={configured} />
           </Tile>
 
           <Tile title="NUTRITION">
-            <Stat label="Calories" value="1,840" />
-            <Stat label="Protein" value="142g" />
-            <StatRow label="Water" value="2.8L" badge="⚠" badgeColor="text-amber-400" />
+            <NotTrackedYet />
           </Tile>
 
           <Tile title="PHONE">
-            <StatRow label="IG" value="8 min" badge="✅" />
-            <StatRow label="YT" value="62 min" badge="⚠" badgeColor="text-amber-400" />
-            <StatRow label="Dating" value="clean" badge="✅" />
+            <NotTrackedYet />
           </Tile>
 
           {/* Row 3 */}
           <Tile title="MONEY">
-            <StatRow label="Bank 1" value="$4,231" />
-            <StatRow label="Bank 2" value="$812" />
-            <StatRow label="Amex" value="-$1,245" valueColor="text-red-400" />
+            <MoneyTileBody budget={budget} amexToday={amexToday} configured={configured} />
           </Tile>
 
           <Tile title="PUNISHMENTS THIS WEEK">
@@ -388,6 +404,176 @@ function ConnectWhoopCta() {
 
 function NoData() {
   return <p className="text-xs text-zinc-500 italic">no data yet</p>;
+}
+
+function NotTrackedYet({
+  subtitle = "Coming in a future phase",
+}: {
+  subtitle?: string;
+}) {
+  return (
+    <div>
+      <p className="text-sm text-zinc-500">Not tracked yet</p>
+      <p className="text-[10px] text-zinc-600 uppercase tracking-widest mt-1">
+        {subtitle}
+      </p>
+    </div>
+  );
+}
+
+function formatStepsRoutine(ah: DashboardAppleHealth | null): string {
+  if (!ah || (!ah.todaySteps && !ah.weekStepsAvg)) return "—";
+  const today = ah.todaySteps ? ah.todaySteps.toLocaleString("en-AU") : "0";
+  if (!ah.weekStepsAvg) return `${today} today`;
+  const avg = ah.weekStepsAvg.toLocaleString("en-AU");
+  return `${today} today · ${avg} avg`;
+}
+
+function formatWorkoutDuration(min: number): string {
+  if (!Number.isFinite(min) || min <= 0) return "—";
+  if (min < 60) return `${Math.round(min)}m`;
+  const h = Math.floor(min / 60);
+  const m = Math.round(min - h * 60);
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+function GymTileBody({
+  appleHealth,
+  configured,
+}: {
+  appleHealth: DashboardAppleHealth | null;
+  configured: boolean;
+}) {
+  if (!configured) {
+    return (
+      <>
+        <StatRow label="Today" value="" badge="✅" />
+        <StatRow label="Streak" value="6 days" />
+        <StatRow label="Latest" value="Run · 32m · Strava" />
+      </>
+    );
+  }
+  const hasAnyData =
+    !!appleHealth &&
+    (appleHealth.todayWorkouts.length > 0 ||
+      appleHealth.weekWorkoutCount > 0 ||
+      appleHealth.lastSynced ||
+      appleHealth.workoutStreak > 0);
+  if (!hasAnyData) {
+    return (
+      <div>
+        <p className="text-sm text-zinc-400">Connect Apple Health</p>
+        <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-1">
+          See SETUP-APPLEHEALTH.md
+        </p>
+      </div>
+    );
+  }
+  const todayWorkouts = appleHealth!.todayWorkouts;
+  const todayBadge = todayWorkouts.length > 0 ? "✅" : "❌";
+  const todayValue =
+    todayWorkouts.length > 0
+      ? todayWorkouts.length === 1
+        ? todayWorkouts[0].type
+        : `${todayWorkouts.length} workouts`
+      : "No workout logged";
+  const todayBadgeColor =
+    todayWorkouts.length > 0 ? "text-green-400" : "text-red-400";
+  const latest = appleHealth!.latestWorkout;
+  return (
+    <>
+      <StatRow
+        label="Today"
+        value={todayValue}
+        badge={todayBadge}
+        badgeColor={todayBadgeColor}
+      />
+      <StatRow label="This week" value={`${appleHealth!.weekWorkoutCount} workouts`} />
+      <StatRow label="Streak" value={`${appleHealth!.workoutStreak} day${appleHealth!.workoutStreak === 1 ? "" : "s"}`} />
+      {latest && (
+        <p className="text-xs text-zinc-500 mt-2">
+          Latest: {latest.workout.type} ·{" "}
+          {formatWorkoutDuration(latest.workout.durationMin)} ·{" "}
+          {latest.workout.source}
+        </p>
+      )}
+    </>
+  );
+}
+
+function formatMoney(n: number, currency = "AUD"): string {
+  if (!Number.isFinite(n)) return "—";
+  const symbol = currency === "AUD" || currency === "USD" ? "$" : "";
+  const abs = Math.abs(n);
+  const formatted = abs >= 1000
+    ? abs.toLocaleString("en-AU", { maximumFractionDigits: 0 })
+    : abs.toLocaleString("en-AU", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+  return `${n < 0 ? "-" : ""}${symbol}${formatted}`;
+}
+
+function MoneyTileBody({
+  budget,
+  amexToday,
+  configured,
+}: {
+  budget: BudgetMonthly | null;
+  amexToday: DashboardAmexToday | null;
+  configured: boolean;
+}) {
+  if (!configured) {
+    return (
+      <>
+        <StatRow label="This month" value="$3,210 / $4,500" />
+        <StatRow label="Today" value="2 charges · $84" />
+        <p className="text-xs text-zinc-500 mt-2">Latest: Coles · $32 · 14:02</p>
+      </>
+    );
+  }
+  return (
+    <>
+      {budget ? (
+        <StatRow
+          label={budget.monthLabel}
+          value={`${formatMoney(budget.actual)} / ${formatMoney(budget.planned)}`}
+          valueColor={
+            budget.planned > 0 && budget.actual > budget.planned
+              ? "text-red-400"
+              : "text-white"
+          }
+        />
+      ) : (
+        <p className="text-[11px] text-zinc-500 italic">
+          Budget not configured (set BUDGET_SHEET_ID)
+        </p>
+      )}
+      <StatRow
+        label="Today"
+        value={
+          amexToday && amexToday.count > 0
+            ? `${amexToday.count} charge${amexToday.count === 1 ? "" : "s"} · ${formatMoney(amexToday.total, amexToday.currency)}`
+            : "no charges yet"
+        }
+      />
+      {amexToday?.mostRecent && (
+        <p className="text-xs text-zinc-500 mt-2 truncate">
+          Latest: {amexToday.mostRecent.merchant || "—"} ·{" "}
+          {formatMoney(amexToday.mostRecent.amount, amexToday.currency)} ·{" "}
+          {fmtSyncedAt(amexToday.mostRecent.syncedAt)}
+        </p>
+      )}
+    </>
+  );
+}
+
+function fmtSyncedAt(iso: string): string {
+  const t = Date.parse(iso);
+  if (isNaN(t)) return "—";
+  return new Date(t).toLocaleTimeString("en-AU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Australia/Sydney",
+  });
 }
 
 function Stat({
