@@ -6,12 +6,29 @@ import {
   appendDailyCheckIn,
   appendEdgeLog,
   appendOrgasmLog,
+  setSetting,
   type OrgasmType,
 } from "@/lib/sheets";
 import { sendHarleyEmail } from "@/lib/email";
 import { getDashboardWeakness } from "@/lib/weakness";
 
 const EDGE_EMAIL_THRESHOLD = 5;
+
+export async function setOrgasmAllowedAction(
+  value: "yes" | "no"
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (value !== "yes" && value !== "no") {
+    return { ok: false, error: "value must be yes or no" };
+  }
+  try {
+    await setSetting("orgasm_allowed", value, "dashboard-toggle");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (e) {
+    console.error("[setOrgasmAllowedAction]", (e as Error).message);
+    return { ok: false, error: (e as Error).message };
+  }
+}
 
 export async function logOrgasmAction(
   type: OrgasmType,
