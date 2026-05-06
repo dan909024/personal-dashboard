@@ -16,6 +16,7 @@ import {
 } from "@/lib/sheets";
 import { getDashboardWeakness } from "@/lib/weakness";
 import { WeaknessAltarTile } from "@/components/tiles/WeaknessAltarTile";
+import DenialClock from "@/components/DenialClock";
 
 // Revalidate the page every 30s in production.
 export const revalidate = 30;
@@ -383,6 +384,11 @@ export default async function Dashboard({
                 </>
               );
             })()}
+          </Tile>
+
+          {/* Row 4 */}
+          <Tile title="DENIAL TRACKER">
+            <DenialClock />
           </Tile>
         </div>
 
