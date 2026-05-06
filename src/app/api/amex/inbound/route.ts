@@ -337,6 +337,24 @@ export async function POST(req: NextRequest) {
 
   const email = adapt(payload);
   if (!email) return bad("unrecognised_payload_shape");
+
+  // Special-case Gmail's forwarding verification email. CloudMailin Free
+  // doesn't preserve the email body in its UI, so the verification code
+  // is otherwise unrecoverable. Extract it here and return it in the
+  // response so it shows up in CloudMailin's "Your Server's Response Body".
+  if (/forwarding-noreply@google\.com/i.test(email.from)) {
+    const body = pickBody(email);
+    const codeMatch = body.match(/\b(\d{9})\b/); // Gmail uses 9-digit codes
+    const urlMatch = body.match(/https:\/\/mail-settings\.google\.com\/mail\/[^\s"'<>]+/);
+    return NextResponse.json({
+      ok: true,
+      gmail_forwarding_verification: true,
+      code: codeMatch ? codeMatch[1] : null,
+      confirm_url: urlMatch ? urlMatch[0] : null,
+      hint: "Click the confirm_url OR paste the code into Gmail's forwarding settings.",
+    });
+  }
+
   if (!email.messageId) return bad("missing_message_id");
   if (!isFromAmex(email.from)) {
     // Reject anything not from Amex — defense against accidental
