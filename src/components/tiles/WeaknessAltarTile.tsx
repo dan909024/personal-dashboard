@@ -9,6 +9,7 @@ import {
   logOrgasmAction,
 } from "@/app/actions/weakness";
 import type { WeaknessDashboardData } from "@/lib/weakness";
+import DenialClock from "@/components/DenialClock";
 
 import { WeaknessChart } from "./WeaknessChart";
 
@@ -100,6 +101,7 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
             }`}
           />
           {data.orgasmAllowed === "yes" ? "Allowed" : "Denied"}
+          {data.orgasmAllowed === "no" && <DenialClock />}
         </span>
       </div>
 
