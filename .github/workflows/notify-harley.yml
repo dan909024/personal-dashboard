@@ -3,6 +3,7 @@ name: Notify Harley on push to main
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   notify:
@@ -36,9 +37,9 @@ jobs:
               from: "Personal Dashboard <onboarding@resend.dev>",
               to: [$to],
               subject: "Dan deployed to personal-dashboard",
-              html: ("<p><strong>Author:</strong> " + $author + "</p>"
-                  + "<p><strong>Message:</strong> " + $msg + "</p>"
-                  + "<p><strong>Commit:</strong> <a href=\"" + $url + "\">" + $sha + "</a></p>")
+              html: ("<p><strong>Author:</strong> " + ($author | @html) + "</p>"
+                  + "<p><strong>Message:</strong> " + ($msg | @html) + "</p>"
+                  + "<p><strong>Commit:</strong> <a href=\"" + ($url | @html) + "\">" + $sha + "</a></p>")
             }')
           curl -fsS -X POST https://api.resend.com/emails \
             -H "Authorization: Bearer $RESEND_API_KEY" \
