@@ -1,0 +1,39 @@
+# Every-5-min heartbeat. Hits /api/cron/heartbeat, which checks data
+# plumbing health, appends a System Health row, and pings Healthchecks
+# directly (HEALTHCHECK_HEARTBEAT_URL lives in Vercel env, not GH).
+#
+# Lives in GH Actions instead of Vercel cron because Vercel Hobby caps
+# crons at 2 and whoop-sync already needs one.
+#
+# GitHub's '*/5' cron is best-effort and can drift 10+ minutes under
+# load — Healthchecks period 5m / grace 15m absorbs that.
+
+name: Heartbeat (every 5 min)
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit heartbeat endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DASHBOARD_BASE_URL: ${{ secrets.DASHBOARD_BASE_URL }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$DASHBOARD_BASE_URL/api/cron/heartbeat")
+
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "Status: $status"
+          echo "Body: $body"
+
+          if [ "$status" -ne 200 ]; then
+            exit 1
+          fi
