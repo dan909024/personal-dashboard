@@ -33,6 +33,7 @@ import {
   ensureTabs,
   appendRows,
   isConfigured,
+  SETTINGS_SEED_ROWS,
 } from "../src/lib/sheets";
 
 async function main() {
@@ -86,6 +87,11 @@ async function main() {
     await appendRows("Coach Notes", [
       [today, "Coach", "Strong work yesterday. Keep it up."],
     ]);
+  }
+
+  if (created.includes("Settings")) {
+    console.log("Seeding Settings…");
+    await appendRows("Settings", SETTINGS_SEED_ROWS);
   }
 
   console.log("Done.");

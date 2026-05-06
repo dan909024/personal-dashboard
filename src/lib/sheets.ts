@@ -95,6 +95,10 @@ export const TAB_SCHEMAS = {
     "Minutes",
     "Synced at",
   ],
+  "Orgasm Log": ["Date", "Time", "Type", "Note", "Days since previous"],
+  "Edge Log": ["Date", "Time", "Note"],
+  "Daily Check-in": ["Date", "Arousal (1-10)", "Note"],
+  Settings: ["Setting", "Value", "Last Updated", "Updated By"],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -211,7 +215,7 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function todaySydneyISO(): string {
+export function todaySydneyISO(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Australia/Sydney",
     year: "numeric",
@@ -1438,3 +1442,473 @@ export const getDashboardScreentime = unstable_cache(
   ["dashboard:screentime"],
   { revalidate: 60 }
 );
+
+// ---------- Phase 5B: Goddess's Weakening Altar ----------
+//
+// Tabs: Orgasm Log, Edge Log, Daily Check-in, Settings.
+//
+// Reuses the file-level todaySydneyISO() helper exported above so wall-clock
+// dates are correct for the user; the rest of the codebase uses UTC dates.
+
+function nowSydneyTimeHHMM(): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Australia/Sydney",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date());
+}
+
+function nowSydneyISO(): string {
+  return `${todaySydneyISO()}T${nowSydneyTimeHHMM()}`;
+}
+
+function daysBetween(fromISO: string, toISO: string): number {
+  const a = Date.parse(fromISO + "T00:00:00Z");
+  const b = Date.parse(toISO + "T00:00:00Z");
+  if (isNaN(a) || isNaN(b)) return 0;
+  return Math.max(0, Math.round((b - a) / 86400000));
+}
+
+// ---------- Orgasm Log ----------
+
+export type OrgasmType = "allowed" | "lapsed";
+
+export type OrgasmLogRow = {
+  date: string;
+  time: string;
+  type: OrgasmType;
+  note: string;
+  daysSincePrevious: number | null;
+};
+
+async function readOrgasmLog(): Promise<OrgasmLogRow[]> {
+  const rows = await readTab("Orgasm Log");
+  if (!rows || rows.length < 2) return [];
+  const out: OrgasmLogRow[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const date = normalizeDate(r[0]);
+    if (!date) continue;
+    const rawType = String(r[2] ?? "").trim().toLowerCase();
+    const type: OrgasmType = rawType === "lapsed" ? "lapsed" : "allowed";
+    const days = r[4] === "" || r[4] === undefined ? null : Number(r[4]);
+    out.push({
+      date,
+      time: String(r[1] ?? ""),
+      type,
+      note: String(r[3] ?? ""),
+      daysSincePrevious: Number.isFinite(days as number) ? (days as number) : null,
+    });
+  }
+  out.sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
+  return out;
+}
+
+export async function getMostRecentOrgasm(): Promise<OrgasmLogRow | null> {
+  const rows = await readOrgasmLog();
+  return rows.length ? rows[rows.length - 1] : null;
+}
+
+export async function getMostRecentAllowedOrgasm(): Promise<OrgasmLogRow | null> {
+  const rows = await readOrgasmLog();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].type === "allowed") return rows[i];
+  }
+  return null;
+}
+
+export async function appendOrgasmLog(input: {
+  type: OrgasmType;
+  note?: string;
+}): Promise<{ date: string; daysSincePrevious: number | null }> {
+  await ensureTab("Orgasm Log");
+  const date = todaySydneyISO();
+  const time = nowSydneyTimeHHMM();
+  const previous = await getMostRecentOrgasm();
+  const daysSince = previous ? daysBetween(previous.date, date) : null;
+  const client = sheetsClient();
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Orgasm Log!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[
+        date,
+        time,
+        input.type,
+        input.note || "",
+        daysSince === null ? "" : daysSince,
+      ]],
+    },
+  });
+  return { date, daysSincePrevious: daysSince };
+}
+
+export async function getOrgasmsLast30Days(): Promise<OrgasmLogRow[]> {
+  const all = await readOrgasmLog();
+  const cutoffMs = Date.now() - 30 * 86400000;
+  return all.filter((o) => {
+    const ms = Date.parse(o.date + "T12:00:00Z");
+    return !isNaN(ms) && ms >= cutoffMs;
+  });
+}
+
+// ---------- Edge Log ----------
+
+export type EdgeLogRow = {
+  date: string;
+  time: string;
+  note: string;
+};
+
+async function readEdgeLog(): Promise<EdgeLogRow[]> {
+  const rows = await readTab("Edge Log");
+  if (!rows || rows.length < 2) return [];
+  const out: EdgeLogRow[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const date = normalizeDate(r[0]);
+    if (!date) continue;
+    out.push({
+      date,
+      time: String(r[1] ?? ""),
+      note: String(r[2] ?? ""),
+    });
+  }
+  return out;
+}
+
+export async function appendEdgeLog(input: { note?: string } = {}): Promise<{
+  date: string;
+  countToday: number;
+}> {
+  await ensureTab("Edge Log");
+  const date = todaySydneyISO();
+  const time = nowSydneyTimeHHMM();
+  const client = sheetsClient();
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Edge Log!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[date, time, input.note || ""]],
+    },
+  });
+  // Count today AFTER the append so the caller can use it for thresholds.
+  const all = await readEdgeLog();
+  const countToday = all.filter((e) => e.date === date).length;
+  return { date, countToday };
+}
+
+export async function getEdgeLogsSinceLastOrgasm(): Promise<EdgeLogRow[]> {
+  const [edges, mostRecent] = await Promise.all([
+    readEdgeLog(),
+    getMostRecentOrgasm(),
+  ]);
+  if (!mostRecent) return edges;
+  const cutoff = `${mostRecent.date}T${mostRecent.time || "00:00"}`;
+  return edges.filter((e) => `${e.date}T${e.time || "00:00"}` > cutoff);
+}
+
+export async function getEdgeLogsLast30Days(): Promise<EdgeLogRow[]> {
+  const all = await readEdgeLog();
+  const cutoffMs = Date.now() - 30 * 86400000;
+  return all.filter((e) => {
+    const ms = Date.parse(e.date + "T12:00:00Z");
+    return !isNaN(ms) && ms >= cutoffMs;
+  });
+}
+
+// ---------- Daily Check-in (upsert on Date) ----------
+
+export type DailyCheckInRow = {
+  date: string;
+  arousal: number;
+  note: string;
+};
+
+async function readDailyCheckIns(): Promise<DailyCheckInRow[]> {
+  const rows = await readTab("Daily Check-in");
+  if (!rows || rows.length < 2) return [];
+  const out: DailyCheckInRow[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const date = normalizeDate(r[0]);
+    if (!date) continue;
+    const arousal = Number(r[1] ?? 0);
+    if (!Number.isFinite(arousal)) continue;
+    out.push({
+      date,
+      arousal,
+      note: String(r[2] ?? ""),
+    });
+  }
+  return out;
+}
+
+export async function appendDailyCheckIn(input: {
+  arousal: number;
+  note?: string;
+}): Promise<{ date: string; action: "appended" | "updated" }> {
+  await ensureTab("Daily Check-in");
+  const client = sheetsClient();
+  const id = sheetId();
+  const date = todaySydneyISO();
+  const get = await client.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: "Daily Check-in!A1:C",
+    valueRenderOption: "UNFORMATTED_VALUE",
+    dateTimeRenderOption: "FORMATTED_STRING",
+  });
+  const rows = (get.data.values || []) as (string | number)[][];
+  const values = [date, input.arousal, input.note || ""];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const d = normalizeDate(r[0] as string | number | undefined);
+    if (d === date) {
+      const sheetRow = i + 1;
+      await client.spreadsheets.values.update({
+        spreadsheetId: id,
+        range: `Daily Check-in!A${sheetRow}:C${sheetRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [values] },
+      });
+      return { date, action: "updated" };
+    }
+  }
+  await client.spreadsheets.values.append({
+    spreadsheetId: id,
+    range: "Daily Check-in!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values] },
+  });
+  return { date, action: "appended" };
+}
+
+export async function getCheckInsSinceLastOrgasm(): Promise<DailyCheckInRow[]> {
+  const [checkIns, mostRecent] = await Promise.all([
+    readDailyCheckIns(),
+    getMostRecentOrgasm(),
+  ]);
+  if (!mostRecent) return checkIns;
+  return checkIns.filter((c) => c.date >= mostRecent.date);
+}
+
+export async function getCheckInsLast30Days(): Promise<DailyCheckInRow[]> {
+  const all = await readDailyCheckIns();
+  const cutoffMs = Date.now() - 30 * 86400000;
+  return all.filter((c) => {
+    const ms = Date.parse(c.date + "T12:00:00Z");
+    return !isNaN(ms) && ms >= cutoffMs;
+  });
+}
+
+export async function hasArousalCheckInToday(): Promise<boolean> {
+  const today = todaySydneyISO();
+  const all = await readDailyCheckIns();
+  return all.some((c) => c.date === today);
+}
+
+// ---------- Settings ----------
+
+export type WeaknessSettings = {
+  orgasm_allowed: "yes" | "no";
+  weakness_base_daily: number;
+  weakness_edge_weight: number;
+  weakness_arousal_weight: number;
+  brutal_bonus_threshold: number;
+  brutal_bonus_per_10_edges: number;
+  brutal_bonus_max_multiplier: number;
+  default_arousal_when_missing: number;
+  phase_thresholds: Record<string, [number, number, string]>;
+};
+
+export const DEFAULT_PHASE_THRESHOLDS: WeaknessSettings["phase_thresholds"] = {
+  "Post-Nut Devotee": [0, 150, "Most resistant right after release."],
+  "Denying the Ache": [151, 320, "Trying to ignore the growing need."],
+  "Building Weakness": [321, 520, "Weakness is starting to build."],
+  "Fading Subbie": [521, 720, "Resistance is fading fast."],
+  "Breaking Adorer": [721, 920, "Mind starting to melt for Her."],
+  Submitting: [921, 1150, "Giving in, obedience taking over."],
+  "Deep Submission": [1151, 1350, "Deeper and deeper under Her control."],
+  "Helpless Vessel": [1351, 1550, "No control left. Just a vessel."],
+  "Eternal Edge Toy": [1551, 1750, "Conditioned to edge endlessly."],
+  "Mindless Offering": [1751, 1950, "Brainless tribute for Goddess."],
+  "Complete Slave": [1951, 999999, "No self. Pure property."],
+};
+
+export const DEFAULT_WEAKNESS_SETTINGS: WeaknessSettings = {
+  orgasm_allowed: "no",
+  weakness_base_daily: 40,
+  weakness_edge_weight: 12,
+  weakness_arousal_weight: 25,
+  brutal_bonus_threshold: 20,
+  brutal_bonus_per_10_edges: 0.15,
+  brutal_bonus_max_multiplier: 5.0,
+  default_arousal_when_missing: 5,
+  phase_thresholds: DEFAULT_PHASE_THRESHOLDS,
+};
+
+/** Seed rows for the Settings tab — written once when the tab is created. */
+export const SETTINGS_SEED_ROWS: (string | number)[][] = [
+  ["orgasm_allowed", "no", "", "system"],
+  ["weakness_base_daily", 40, "", "system"],
+  ["weakness_edge_weight", 12, "", "system"],
+  ["weakness_arousal_weight", 25, "", "system"],
+  ["brutal_bonus_threshold", 20, "", "system"],
+  ["brutal_bonus_per_10_edges", 0.15, "", "system"],
+  ["brutal_bonus_max_multiplier", 5.0, "", "system"],
+  ["default_arousal_when_missing", 5, "", "system"],
+  ["phase_thresholds", JSON.stringify(DEFAULT_PHASE_THRESHOLDS), "", "system"],
+];
+
+async function readSettingsTab(): Promise<Map<string, string>> {
+  const rows = await readTab("Settings");
+  const map = new Map<string, string>();
+  if (!rows || rows.length < 2) return map;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const key = String(r[0] ?? "").trim();
+    if (!key) continue;
+    map.set(key, String(r[1] ?? ""));
+  }
+  return map;
+}
+
+/**
+ * Typed Setting accessor. `phase_thresholds` is parsed as JSON; everything
+ * else returns the raw string. Returns null if the row is missing.
+ */
+export async function getSetting(name: string): Promise<unknown | null> {
+  const map = await readSettingsTab();
+  if (!map.has(name)) return null;
+  const raw = map.get(name)!;
+  if (name === "phase_thresholds") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return raw;
+}
+
+export async function setSetting(
+  name: string,
+  value: string | number,
+  updatedBy = "dashboard"
+): Promise<void> {
+  await ensureTab("Settings");
+  const client = sheetsClient();
+  const id = sheetId();
+  const get = await client.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: "Settings!A1:D",
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
+  const rows = (get.data.values || []) as (string | number)[][];
+  const updatedAt = nowSydneyISO();
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    if (String(r[0] ?? "").trim() === name) {
+      const sheetRow = i + 1;
+      await client.spreadsheets.values.update({
+        spreadsheetId: id,
+        range: `Settings!A${sheetRow}:D${sheetRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[name, value, updatedAt, updatedBy]] },
+      });
+      return;
+    }
+  }
+  await client.spreadsheets.values.append({
+    spreadsheetId: id,
+    range: "Settings!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[name, value, updatedAt, updatedBy]] },
+  });
+}
+
+/**
+ * Single round-trip read of all weakness-related settings. Falls back to
+ * DEFAULT_WEAKNESS_SETTINGS for any missing key.
+ */
+export async function getWeaknessSettings(): Promise<WeaknessSettings> {
+  const map = await readSettingsTab();
+  const num = (key: keyof WeaknessSettings, fallback: number): number => {
+    const raw = map.get(key);
+    if (raw === undefined) return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  let phaseThresholds = DEFAULT_PHASE_THRESHOLDS;
+  const rawPhases = map.get("phase_thresholds");
+  if (rawPhases) {
+    try {
+      const parsed = JSON.parse(rawPhases);
+      if (parsed && typeof parsed === "object") {
+        phaseThresholds = parsed as WeaknessSettings["phase_thresholds"];
+      }
+    } catch {
+      // keep defaults
+    }
+  }
+  const allowed = (map.get("orgasm_allowed") ?? "no").trim().toLowerCase();
+  return {
+    orgasm_allowed: allowed === "yes" ? "yes" : "no",
+    weakness_base_daily: num("weakness_base_daily", DEFAULT_WEAKNESS_SETTINGS.weakness_base_daily),
+    weakness_edge_weight: num("weakness_edge_weight", DEFAULT_WEAKNESS_SETTINGS.weakness_edge_weight),
+    weakness_arousal_weight: num("weakness_arousal_weight", DEFAULT_WEAKNESS_SETTINGS.weakness_arousal_weight),
+    brutal_bonus_threshold: num("brutal_bonus_threshold", DEFAULT_WEAKNESS_SETTINGS.brutal_bonus_threshold),
+    brutal_bonus_per_10_edges: num("brutal_bonus_per_10_edges", DEFAULT_WEAKNESS_SETTINGS.brutal_bonus_per_10_edges),
+    brutal_bonus_max_multiplier: num("brutal_bonus_max_multiplier", DEFAULT_WEAKNESS_SETTINGS.brutal_bonus_max_multiplier),
+    default_arousal_when_missing: num("default_arousal_when_missing", DEFAULT_WEAKNESS_SETTINGS.default_arousal_when_missing),
+    phase_thresholds: phaseThresholds,
+  };
+}
+
+/** Cached read of just orgasm_allowed for the layout background swap. */
+export const getOrgasmAllowed = unstable_cache(
+  async (): Promise<"yes" | "no"> => {
+    const map = await readSettingsTab();
+    const v = (map.get("orgasm_allowed") ?? "no").trim().toLowerCase();
+    return v === "yes" ? "yes" : "no";
+  },
+  ["dashboard:orgasm-allowed"],
+  { revalidate: 30 }
+);
+
+/**
+ * Aggregator pulled by the dashboard tile in one Promise.all. Pulls everything
+ * over the network; computeWeaknessScore (in src/lib/weakness.ts) does the math
+ * locally so this stays a thin sheet-IO wrapper.
+ */
+export async function getWeaknessRawData(): Promise<{
+  orgasms: OrgasmLogRow[];
+  edges: EdgeLogRow[];
+  checkIns: DailyCheckInRow[];
+  settings: WeaknessSettings;
+  hasArousalCheckInToday: boolean;
+  mostRecentOrgasm: OrgasmLogRow | null;
+}> {
+  const [orgasms, edges, checkIns, settings] = await Promise.all([
+    readOrgasmLog(),
+    readEdgeLog(),
+    readDailyCheckIns(),
+    getWeaknessSettings(),
+  ]);
+  const today = todaySydneyISO();
+  return {
+    orgasms,
+    edges,
+    checkIns,
+    settings,
+    hasArousalCheckInToday: checkIns.some((c) => c.date === today),
+    mostRecentOrgasm: orgasms.length ? orgasms[orgasms.length - 1] : null,
+  };
+}
