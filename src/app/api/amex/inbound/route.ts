@@ -345,13 +345,21 @@ export async function POST(req: NextRequest) {
   // to retry, which is what we want — a one-shot extraction.
   if (/forwarding-noreply@google\.com/i.test(email.from)) {
     const body = pickBody(email);
-    const codeMatch = body.match(/\b(\d{9})\b/); // Gmail uses 9-digit codes
-    const urlMatch = body.match(/https:\/\/mail-settings\.google\.com\/mail\/[^\s"'<>]+/);
+    // Try multiple known Gmail patterns. We surface ALL candidate codes
+    // and URLs (de-duped) so a format change in the verification email
+    // doesn't silently break us.
+    const codes = Array.from(new Set(
+      Array.from(body.matchAll(/\b(\d{6,12})\b/g)).map((m) => m[1])
+    ));
+    const urls = Array.from(new Set(
+      Array.from(body.matchAll(/https?:\/\/[^\s"'<>]+/g)).map((m) => m[0])
+    ));
     return NextResponse.json({
       gmail_forwarding_verification: true,
-      code: codeMatch ? codeMatch[1] : null,
-      confirm_url: urlMatch ? urlMatch[0] : null,
-      hint: "Click the confirm_url OR paste the code into Gmail's forwarding settings. The 422 status is intentional — see route comment.",
+      code_candidates: codes,
+      url_candidates: urls,
+      body_preview: body.slice(0, 1500),
+      hint: "422 is intentional — CloudMailin Free only preserves response bodies for 4xx. Look for a confirmation URL in url_candidates or a code in code_candidates.",
     }, { status: 422 });
   }
 
