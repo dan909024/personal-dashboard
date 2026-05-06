@@ -35,6 +35,10 @@ const CAL_CAP = 20000;
 const WORKOUT_DURATION_CAP_MIN = 24 * 60;
 
 function bad(msg: string, status = 400) {
+  // 400s are usually the Shortcut sending the wrong shape (date format, missing
+  // source, body wrapped in a string). Log the validation message so the next
+  // failed attempt leaves a fingerprint in `vercel logs`.
+  if (status === 400) console.warn("[health/ingest] 400:", msg);
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
 
