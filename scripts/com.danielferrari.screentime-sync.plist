@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for the Mac Screen Time collector. Runs every 4 hours
+  while the Mac is awake. Catches up on next wake (RunAtLoad) — so a
+  closed-laptop weekend backfills as soon as you reopen.
+
+  Install:
+    1. Edit the placeholders below (REPLACE_*).
+    2. Copy:
+         cp scripts/com.danielferrari.screentime-sync.plist \
+            ~/Library/LaunchAgents/com.danielferrari.screentime-sync.plist
+    3. Load it:
+         launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.danielferrari.screentime-sync.plist
+    4. (Optional) Trigger now:
+         launchctl kickstart -k gui/$UID/com.danielferrari.screentime-sync
+
+  Inspect:
+    launchctl list | grep screentime-sync
+    tail -f /tmp/screentime-sync.log
+
+  Uninstall:
+    launchctl bootout gui/$UID ~/Library/LaunchAgents/com.danielferrari.screentime-sync.plist
+    rm ~/Library/LaunchAgents/com.danielferrari.screentime-sync.plist
+
+  REQUIRED ONE-TIME SETUP: Full Disk Access for the process that
+  actually executes the script. The simplest path is granting Full Disk
+  Access to /usr/bin/env (or to your shell binary). System Settings →
+  Privacy & Security → Full Disk Access → "+", navigate to /usr/bin/env.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.danielferrari.screentime-sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>npx</string>
+    <string>--yes</string>
+    <string>tsx</string>
+    <string>REPLACE_WITH_ABSOLUTE_PATH/Personal Dashboard/scripts/screentime-mac-sync.ts</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>REPLACE_WITH_ABSOLUTE_PATH/Personal Dashboard</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>SCREENTIME_INGEST_URL</key>
+    <string>REPLACE_WITH_HTTPS_URL/api/screentime/ingest</string>
+    <key>SCREENTIME_INGEST_SECRET</key>
+    <string>REPLACE_WITH_SHARED_SECRET</string>
+    <key>SCREENTIME_LOOKBACK_DAYS</key>
+    <string>3</string>
+    <key>SCREENTIME_TZ</key>
+    <string>Australia/Sydney</string>
+  </dict>
+
+  <!-- Run every 4 hours (14400 seconds). -->
+  <key>StartInterval</key>
+  <integer>14400</integer>
+
+  <!-- Fire once on load so closed-laptop gaps catch up on wake. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/screentime-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/screentime-sync.log</string>
+</dict>
+</plist>
