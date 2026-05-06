@@ -1,0 +1,55 @@
+# Weekly summary email + Healthchecks tripwire.
+#
+# Vercel Hobby plan caps cron jobs at 2 (whoop-sync + heartbeat already
+# use both), so this lives in GitHub Actions instead. Sunday evening
+# Sydney time, hits the dashboard's weekly-summary endpoint, and pings
+# Healthchecks.io on success.
+#
+# The Healthchecks.io ping is the tripwire: if this workflow stops
+# running (disabled, repo deleted, secret rotated) OR the endpoint
+# returns non-2xx, no ping → Healthchecks alerts Harley within 24h.
+# The endpoint deliberately returns 502 when Resend send fails so a
+# silent email failure cannot result in a green ping.
+
+name: Weekly summary email + heartbeat
+
+on:
+  schedule:
+    # 10:00 UTC Sunday = 8pm AEST (winter) / 9pm AEDT (summer). Acceptable
+    # drift for a weekly digest.
+    - cron: '0 10 * * 0'
+  workflow_dispatch:  # manual trigger from the Actions tab for testing
+
+jobs:
+  send-summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger weekly summary endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://personal-dashboard-six-tan.vercel.app/api/cron/weekly-summary")
+
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "Status: $status"
+          echo "Body: $body"
+
+          if [ "$status" -ne 200 ]; then
+            echo "Weekly summary failed"
+            exit 1
+          fi
+
+      - name: Ping Healthchecks.io (tripwire — Harley is alerted if this workflow stops running)
+        if: success()
+        env:
+          HEALTHCHECK_WEEKLY_URL: ${{ secrets.HEALTHCHECK_WEEKLY_URL }}
+        run: |
+          if [ -n "$HEALTHCHECK_WEEKLY_URL" ]; then
+            curl -fsS --retry 3 "$HEALTHCHECK_WEEKLY_URL"
+          else
+            echo "HEALTHCHECK_WEEKLY_URL not set, skipping"
+          fi
