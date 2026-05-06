@@ -93,8 +93,15 @@ export async function POST(req: NextRequest) {
   if (!body || typeof body !== "object") return bad("body must be a JSON object");
   const b = body as Record<string, unknown>;
 
-  const date = String(b.date ?? "").trim();
+  // Tolerate ISO-with-time strings ("2026-05-07T13:42:00+10:00", "2026-05-07Z",
+  // "2026-05-07 13:42") by slicing the first 10 chars before validation.
+  // iOS Shortcuts' "Format Date" can sneak a time component in even when set
+  // to a date-only format. Locale formats like "07/05/2026" still 400 — those
+  // are genuinely wrong-shape and the user should fix the Shortcut.
+  const rawDate = String(b.date ?? "").trim();
+  const date = rawDate.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    console.warn("[health/ingest] 400 raw date payload:", JSON.stringify(rawDate));
     return bad("date must be YYYY-MM-DD");
   }
   const source = String(b.source ?? "").trim();
