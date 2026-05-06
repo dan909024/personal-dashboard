@@ -87,6 +87,14 @@ export const TAB_SCHEMAS = {
     "Source",
     "Synced at",
   ],
+  "Screen Time": [
+    "Date",
+    "Source",
+    "Label",
+    "Category",
+    "Minutes",
+    "Synced at",
+  ],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -1456,5 +1464,95 @@ export const getDashboardAppleHealth = unstable_cache(
     };
   },
   ["dashboard:apple-health"],
+  { revalidate: 60 }
+);
+
+// ---------- Screen Time ----------
+//
+// Append-only event log fed by /api/screentime/ingest. iOS Shortcut and
+// Mac launchd both POST daily aggregates. Readers dedupe to the latest
+// (date, source, label) tuple by syncedAt — re-posts are cheap and
+// preserve an audit trail.
+
+export type ScreenTimeRow = {
+  date: string;
+  source: string; // "ios_shortcut" | "mac_launchd" (open-ended for future sources)
+  label: string;
+  category: string;
+  minutes: number;
+  syncedAt: string;
+};
+
+export async function appendScreentimeRows(rows: ScreenTimeRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  const client = sheetsClient();
+  await ensureTab("Screen Time");
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Screen Time!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: rows.map((r) => [
+        r.date,
+        r.source,
+        r.label,
+        r.category,
+        r.minutes,
+        r.syncedAt,
+      ]),
+    },
+  });
+}
+
+export async function getRecentScreentime(days = 7): Promise<ScreenTimeRow[]> {
+  if (!isConfigured()) return [];
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Screen Time!A1:F",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const rows = (res.data.values || []) as (string | number)[][];
+    if (rows.length < 2) return [];
+    const cutoffMs = Date.now() - days * 86400 * 1000;
+    const all: ScreenTimeRow[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      const date = normalizeDate(r[0] as string | number | undefined);
+      if (!date) continue;
+      const ms = Date.parse(date + "T12:00:00Z");
+      if (isNaN(ms) || ms < cutoffMs) continue;
+      all.push({
+        date,
+        source: String(r[1] ?? ""),
+        label: String(r[2] ?? ""),
+        category: String(r[3] ?? ""),
+        minutes: Number(r[4] ?? 0) || 0,
+        syncedAt: String(r[5] ?? ""),
+      });
+    }
+    // Dedupe to latest per (date, source, label) by syncedAt.
+    const map = new Map<string, ScreenTimeRow>();
+    for (const r of all) {
+      const key = `${r.date}|${r.source}|${r.label}`;
+      const existing = map.get(key);
+      if (!existing || r.syncedAt > existing.syncedAt) map.set(key, r);
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      a.date < b.date ? 1 : a.date > b.date ? -1 : a.label.localeCompare(b.label)
+    );
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return [];
+    console.error("[sheets] error reading Screen Time:", msg);
+    return [];
+  }
+}
+
+export const getDashboardScreentime = unstable_cache(
+  async (): Promise<ScreenTimeRow[]> => getRecentScreentime(7),
+  ["dashboard:screentime"],
   { revalidate: 60 }
 );
