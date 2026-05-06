@@ -78,6 +78,15 @@ export const TAB_SCHEMAS = {
     "Subject",
     "Synced at",
   ],
+  "Apple Health": [
+    "Date",
+    "Steps",
+    "Workouts JSON",
+    "Active Calories",
+    "Resting Calories",
+    "Source",
+    "Synced at",
+  ],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -192,6 +201,15 @@ function sheetsClient(): sheets_v4.Sheets {
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function todaySydneyISO(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 function mondayOfThisWeek(): string {
@@ -1084,5 +1102,359 @@ export async function getRecentAmexTransactions(
 export const getDashboardAmex = unstable_cache(
   async (): Promise<AmexTransactionRow[]> => getRecentAmexTransactions(30),
   ["dashboard:amex"],
+  { revalidate: 60 }
+);
+
+/**
+ * Today's Amex charges aggregated for the MONEY tile. "Today" is in
+ * Sydney timezone — Amex alerts are timestamped in AU and Dan reads
+ * the dashboard in AU.
+ */
+export type DashboardAmexToday = {
+  count: number;
+  total: number;
+  currency: string;
+  mostRecent: { merchant: string; amount: number; syncedAt: string } | null;
+};
+
+export const getDashboardAmexToday = unstable_cache(
+  async (): Promise<DashboardAmexToday> => {
+    const today = todaySydneyISO();
+    const recent = await getRecentAmexTransactions(2); // small window, today + yesterday for tz safety
+    const todays = recent.filter((r) => r.type === "charge" && r.date === today);
+    const total = todays.reduce((sum, r) => sum + (r.amount || 0), 0);
+    const mostRecent = todays[0]
+      ? { merchant: todays[0].merchant, amount: todays[0].amount, syncedAt: todays[0].syncedAt }
+      : null;
+    return {
+      count: todays.length,
+      total,
+      currency: todays[0]?.currency || "AUD",
+      mostRecent,
+    };
+  },
+  ["dashboard:amex:today"],
+  { revalidate: 60 }
+);
+
+// ---------- Budget (separate spreadsheet) ----------
+//
+// The budget lives in a different Sheet from the dashboard data Sheet.
+// Set BUDGET_SHEET_ID and grant the same service account "Viewer" on
+// that Sheet. Reader scans the "Summary" tab for a row whose first
+// cell labels the current month (e.g. "May 2026", "May", or "2026-05")
+// and pulls the first three numeric cells as Planned / Actual /
+// Remaining. Tolerant of column order so long as those three numbers
+// are present and in that order.
+
+function budgetSheetId(): string {
+  return process.env.BUDGET_SHEET_ID || "";
+}
+
+export type BudgetMonthly = {
+  monthLabel: string;
+  planned: number;
+  actual: number;
+  remaining: number;
+};
+
+export const getBudgetMonthly = unstable_cache(
+  async (): Promise<BudgetMonthly | null> => {
+    const id = budgetSheetId();
+    if (!id || !serviceAccountJsonRaw()) return null;
+    if (!isConfigured()) return null; // sheetsClient requires dashboard config too
+    try {
+      const client = sheetsClient();
+      const res = await client.spreadsheets.values.get({
+        spreadsheetId: id,
+        range: "Summary!A1:Z50",
+        valueRenderOption: "UNFORMATTED_VALUE",
+      });
+      const rows = (res.data.values || []) as (string | number)[][];
+      if (rows.length === 0) return null;
+
+      const now = new Date();
+      const sydMonthLong = new Intl.DateTimeFormat("en-AU", {
+        timeZone: "Australia/Sydney",
+        month: "long",
+      }).format(now);
+      const sydMonthShort = new Intl.DateTimeFormat("en-AU", {
+        timeZone: "Australia/Sydney",
+        month: "short",
+      }).format(now);
+      const sydIso = todaySydneyISO().slice(0, 7); // YYYY-MM
+      const monthLc = sydMonthLong.toLowerCase();
+      const monthShortLc = sydMonthShort.toLowerCase();
+
+      for (const r of rows) {
+        if (!r || r.length === 0) continue;
+        const label = String(r[0] ?? "").trim();
+        if (!label) continue;
+        const labelLc = label.toLowerCase();
+        const matches =
+          labelLc.includes(monthLc) ||
+          labelLc.includes(monthShortLc) ||
+          label.includes(sydIso);
+        if (!matches) continue;
+        const numbers: number[] = [];
+        for (let j = 1; j < r.length && numbers.length < 3; j++) {
+          const v = r[j];
+          if (typeof v === "number") numbers.push(v);
+          else {
+            const s = String(v ?? "").replace(/[^0-9.\-]/g, "");
+            if (s) {
+              const n = Number(s);
+              if (!isNaN(n)) numbers.push(n);
+            }
+          }
+        }
+        if (numbers.length === 0) continue;
+        const [planned = 0, actual = 0, remaining = 0] = numbers;
+        return { monthLabel: label, planned, actual, remaining };
+      }
+      return null;
+    } catch (e) {
+      const msg = (e as Error).message || "";
+      console.error("[sheets] error reading budget Summary:", msg);
+      return null;
+    }
+  },
+  ["dashboard:budget-monthly"],
+  { revalidate: 300 }
+);
+
+// ---------- Apple Health ----------
+//
+// Fed by /api/health/ingest, posted to from an iOS Shortcut once a day
+// (and on demand). Each row is one (Date, Source) combination — the
+// Shortcut posts the same date repeatedly through the day, and we
+// upsert in place so the row reflects the latest snapshot. Workouts
+// are stored as a JSON-encoded string in the "Workouts JSON" column;
+// readers parse on the way out.
+
+export type AppleHealthWorkout = {
+  type: string;
+  durationMin: number;
+  strain?: number;
+  source: string;
+};
+
+export type AppleHealthRow = {
+  date: string; // YYYY-MM-DD (Sydney)
+  steps: number;
+  workouts: AppleHealthWorkout[];
+  activeCalories?: number;
+  restingCalories?: number;
+  source: string; // e.g. "ios-shortcut"
+  syncedAt: string; // ISO
+};
+
+/**
+ * Upsert keyed on (Date, Source). The same Shortcut may post several
+ * times a day with growing step counts — we always want the latest.
+ */
+export async function appendAppleHealth(
+  row: AppleHealthRow
+): Promise<{ action: "appended" | "updated"; rowIndex: number }> {
+  const client = sheetsClient();
+  const id = sheetId();
+  await ensureTab("Apple Health");
+  const get = await client.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: "Apple Health!A1:G",
+    valueRenderOption: "UNFORMATTED_VALUE",
+    dateTimeRenderOption: "FORMATTED_STRING",
+  });
+  const rows = (get.data.values || []) as (string | number)[][];
+  const values = [
+    row.date,
+    row.steps,
+    JSON.stringify(row.workouts || []),
+    row.activeCalories ?? "",
+    row.restingCalories ?? "",
+    row.source,
+    row.syncedAt,
+  ];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const d = normalizeDate(r[0] as string | number | undefined);
+    const src = String(r[5] ?? "");
+    if (d === row.date && src === row.source) {
+      const sheetRow = i + 1;
+      await client.spreadsheets.values.update({
+        spreadsheetId: id,
+        range: `Apple Health!A${sheetRow}:G${sheetRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [values] },
+      });
+      return { action: "updated", rowIndex: sheetRow };
+    }
+  }
+  await client.spreadsheets.values.append({
+    spreadsheetId: id,
+    range: "Apple Health!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values] },
+  });
+  return { action: "appended", rowIndex: rows.length + 1 };
+}
+
+function parseWorkoutsCell(raw: string | number | undefined): AppleHealthWorkout[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(String(raw));
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getRecentAppleHealth(days = 7): Promise<AppleHealthRow[]> {
+  if (!isConfigured()) return [];
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Apple Health!A1:G",
+      valueRenderOption: "UNFORMATTED_VALUE",
+      dateTimeRenderOption: "FORMATTED_STRING",
+    });
+    const rows = (res.data.values || []) as (string | number)[][];
+    if (rows.length < 2) return [];
+    const cutoffMs = Date.now() - days * 86400 * 1000;
+    const out: AppleHealthRow[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      const date = normalizeDate(r[0] as string | number | undefined);
+      if (!date) continue;
+      const ms = Date.parse(date + "T12:00:00Z");
+      if (isNaN(ms) || ms < cutoffMs) continue;
+      out.push({
+        date,
+        steps: Number(r[1] ?? 0) || 0,
+        workouts: parseWorkoutsCell(r[2] as string | undefined),
+        activeCalories: r[3] === "" || r[3] === undefined ? undefined : Number(r[3]) || 0,
+        restingCalories: r[4] === "" || r[4] === undefined ? undefined : Number(r[4]) || 0,
+        source: String(r[5] ?? ""),
+        syncedAt: String(r[6] ?? ""),
+      });
+    }
+    out.sort((a, b) => (a.date < b.date ? -1 : 1));
+    return out;
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return [];
+    console.error("[sheets] error reading Apple Health:", msg);
+    return [];
+  }
+}
+
+export type DashboardAppleHealth = {
+  todaySteps: number;
+  todayWorkouts: AppleHealthWorkout[];
+  weekStepsAvg: number;
+  weekWorkoutCount: number;
+  latestWorkout: { date: string; workout: AppleHealthWorkout } | null;
+  workoutStreak: number;
+  lastSynced: string;
+};
+
+export const getDashboardAppleHealth = unstable_cache(
+  async (): Promise<DashboardAppleHealth> => {
+    // Pull 60 days so the streak counter can look further back than the
+    // 7-day step average needs.
+    const recent = await getRecentAppleHealth(60);
+    if (recent.length === 0) {
+      return {
+        todaySteps: 0,
+        todayWorkouts: [],
+        weekStepsAvg: 0,
+        weekWorkoutCount: 0,
+        latestWorkout: null,
+        workoutStreak: 0,
+        lastSynced: "",
+      };
+    }
+    const today = todaySydneyISO();
+    const sevenDaysAgoMs = Date.parse(today + "T00:00:00+10:00") - 6 * 86400 * 1000;
+
+    const todayRows = recent.filter((r) => r.date === today);
+    const todaySteps = todayRows.reduce((m, r) => Math.max(m, r.steps || 0), 0);
+    const todayWorkouts = todayRows.flatMap((r) => r.workouts || []);
+
+    // Steps per day (max across sources). Average over days that have any
+    // step data in the last 7 (avoids dragging the average down with
+    // zeros for days the Shortcut didn't sync).
+    const stepsByDay = new Map<string, number>();
+    const workoutsByDay = new Map<string, AppleHealthWorkout[]>();
+    for (const r of recent) {
+      const ms = Date.parse(r.date + "T12:00:00Z");
+      if (!isNaN(ms)) {
+        const cur = stepsByDay.get(r.date) ?? 0;
+        if (r.steps > cur) stepsByDay.set(r.date, r.steps);
+        if (r.workouts.length > 0) {
+          const existing = workoutsByDay.get(r.date) ?? [];
+          workoutsByDay.set(r.date, [...existing, ...r.workouts]);
+        }
+      }
+    }
+    const weekStepsList: number[] = [];
+    for (const [date, steps] of stepsByDay) {
+      const ms = Date.parse(date + "T12:00:00Z");
+      if (ms >= sevenDaysAgoMs && steps > 0) weekStepsList.push(steps);
+    }
+    const weekStepsAvg = weekStepsList.length
+      ? Math.round(weekStepsList.reduce((a, b) => a + b, 0) / weekStepsList.length)
+      : 0;
+
+    let weekWorkoutCount = 0;
+    for (const [date, ws] of workoutsByDay) {
+      const ms = Date.parse(date + "T12:00:00Z");
+      if (ms >= sevenDaysAgoMs) weekWorkoutCount += ws.length;
+    }
+
+    // Latest workout = the most recent date with any workout, taking the
+    // last workout in that day's list.
+    let latestWorkout: DashboardAppleHealth["latestWorkout"] = null;
+    const datesWithWorkouts = Array.from(workoutsByDay.keys()).sort().reverse();
+    if (datesWithWorkouts.length > 0) {
+      const d = datesWithWorkouts[0];
+      const list = workoutsByDay.get(d) || [];
+      if (list.length > 0) latestWorkout = { date: d, workout: list[list.length - 1] };
+    }
+
+    // Streak = consecutive days ending today with at least one workout.
+    // If today has no workout yet, the streak walks back from yesterday
+    // — we don't penalise the user for checking the dashboard at 9am.
+    let streak = 0;
+    const startDate = (workoutsByDay.get(today)?.length ?? 0) > 0
+      ? today
+      : new Date(Date.parse(today + "T00:00:00+10:00") - 86400 * 1000)
+          .toISOString()
+          .slice(0, 10);
+    let cursor = startDate;
+    while (workoutsByDay.has(cursor) && (workoutsByDay.get(cursor)?.length ?? 0) > 0) {
+      streak++;
+      const prev = new Date(Date.parse(cursor + "T00:00:00Z") - 86400 * 1000);
+      cursor = prev.toISOString().slice(0, 10);
+    }
+
+    const lastSynced = recent
+      .map((r) => r.syncedAt)
+      .filter(Boolean)
+      .sort()
+      .reverse()[0] || "";
+    return {
+      todaySteps,
+      todayWorkouts,
+      weekStepsAvg,
+      weekWorkoutCount,
+      latestWorkout,
+      workoutStreak: streak,
+      lastSynced,
+    };
+  },
+  ["dashboard:apple-health"],
   { revalidate: 60 }
 );
