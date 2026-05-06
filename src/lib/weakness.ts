@@ -9,6 +9,8 @@
 import {
   todaySydneyISO,
   getWeaknessRawData,
+  getDenialEndDate,
+  setSetting,
   type DailyCheckInRow,
   type EdgeLogRow,
   type OrgasmLogRow,
@@ -235,6 +237,27 @@ export async function getDashboardWeakness(): Promise<WeaknessDashboardData> {
     return emptyDashboard(today);
   }
   const { orgasms, edges, checkIns, settings, hasArousalCheckInToday, mostRecentOrgasm } = raw;
+
+  // Auto-release: when the denial countdown expires, flip orgasm_allowed
+  // from "no" to "yes". Triggers on dashboard load — idempotent because
+  // the guard short-circuits once the flip has happened. denial_end_date
+  // is left in place so the past target stays visible in the Sheet; the
+  // inline DenialClock collapses the countdown automatically once the
+  // target has passed.
+  const denialEnd = await getDenialEndDate();
+  if (settings.orgasm_allowed === "no" && denialEnd) {
+    const targetMs = Date.parse(denialEnd);
+    if (!isNaN(targetMs) && targetMs <= Date.now()) {
+      try {
+        await setSetting("orgasm_allowed", "yes", "auto-release");
+        settings.orgasm_allowed = "yes";
+      } catch (e) {
+        // Don't block the dashboard render if the write fails.
+        console.error("[weakness] auto-release setSetting failed:", (e as Error).message);
+      }
+    }
+  }
+
   const score = computeWeaknessScore({ orgasms, edges, checkIns, settings, today });
   const daily = computeDailyGain(today, edges, checkIns, settings);
   const phase = determinePhase(score, settings);
