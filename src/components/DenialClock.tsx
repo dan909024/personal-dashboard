@@ -8,17 +8,18 @@ function diff(targetMs: number, nowMs: number) {
     days: Math.floor(ms / 86_400_000),
     hours: Math.floor((ms % 86_400_000) / 3_600_000),
     minutes: Math.floor((ms % 3_600_000) / 60_000),
-    seconds: Math.floor((ms % 60_000) / 1000),
   };
 }
 
 const pad2 = (n: number) => n.toString().padStart(2, "0");
 
 /**
- * Inline countdown rendered next to the Denied pill in the Weakness Altar
- * header. Returns null while loading, when no target is set, or once the
- * target has passed — that way the parent can render `Denied <DenialClock />`
- * unconditionally and the clock just disappears when there's nothing to show.
+ * Live denial countdown rendered below the Denied pill in the Weakness
+ * Altar header. Days / hours / minutes only — seconds are dropped so the
+ * counter can be larger without flickering once a second. Returns null
+ * while loading, when no target is set, or once the target has passed.
+ * Ticks every 30s — half a minute is fine resolution for a m-precision
+ * clock and keeps the page idle most of the time.
  */
 export default function DenialClock() {
   const [endDate, setEndDate] = useState<string | null | undefined>(undefined);
@@ -41,7 +42,7 @@ export default function DenialClock() {
   }, []);
 
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    const id = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(id);
   }, []);
 
@@ -51,11 +52,8 @@ export default function DenialClock() {
 
   const r = diff(targetMs, now);
   return (
-    <>
-      <span className="text-zinc-600">·</span>
-      <span className="tabular-nums">
-        {r.days}d {pad2(r.hours)}h {pad2(r.minutes)}m {pad2(r.seconds)}s
-      </span>
-    </>
+    <span className="text-xl font-semibold text-rose-100 tabular-nums tracking-tight">
+      {r.days}d {pad2(r.hours)}h {pad2(r.minutes)}m
+    </span>
   );
 }
