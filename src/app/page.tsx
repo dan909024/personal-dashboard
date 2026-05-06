@@ -14,6 +14,8 @@ import {
   type DashboardAppleHealth,
   type ScreenTimeRow,
 } from "@/lib/sheets";
+import { getDashboardWeakness } from "@/lib/weakness";
+import { WeaknessAltarTile } from "@/components/tiles/WeaknessAltarTile";
 
 // Revalidate the page every 30s in production.
 export const revalidate = 30;
@@ -144,6 +146,7 @@ export default async function Dashboard({
     sleepEdits,
     appleHealth,
     screentime,
+    weakness,
   ] = await Promise.all([
     configured ? getOpenTasks(3) : Promise.resolve([]),
     configured ? getPunishments() : Promise.resolve([]),
@@ -158,6 +161,7 @@ export default async function Dashboard({
     configured
       ? getDashboardScreentime()
       : Promise.resolve([] as ScreenTimeRow[]),
+    configured ? getDashboardWeakness() : Promise.resolve(null),
   ]);
 
   const phoneSummary = summarizeScreentime(screentime);
@@ -166,13 +170,27 @@ export default async function Dashboard({
   const review = daysUntilSunday();
   const lastUpdated = fmtTime(new Date());
 
+  // Background swap based on Settings.orgasm_allowed. Falls back to coach.jpg
+  // when the Sheet isn't configured yet so first-time setup still has a visual.
+  const allowed = weakness?.orgasmAllowed === "yes";
+  const backgroundImage = !configured
+    ? "url('/coach.jpg')"
+    : allowed
+    ? "url('/backgrounds/allowed.jpg')"
+    : "url('/backgrounds/denied.jpg')";
+  // Warm rose overlay when allowed, cool slate when denied; tile contrast still good.
+  const overlayClass = !configured
+    ? "bg-black/55"
+    : allowed
+    ? "bg-rose-950/55"
+    : "bg-slate-950/65";
+
   return (
     <div
       className="min-h-screen text-white relative bg-[#0a0a0a] bg-fixed bg-center bg-cover"
-      style={{ backgroundImage: "url('/coach.jpg')" }}
+      style={{ backgroundImage }}
     >
-      {/* Dark overlay for readability */}
-      <div className="absolute inset-0 bg-black/55 pointer-events-none" />
+      <div className={`absolute inset-0 ${overlayClass} pointer-events-none`} />
 
       <div className="relative z-10">
         {/* Setup banner if env not configured */}
@@ -232,6 +250,8 @@ export default async function Dashboard({
 
         {/* Dashboard grid */}
         <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+          {weakness && <WeaknessAltarTile data={weakness} />}
+
           {/* Row 1 */}
           <Tile title="WHOOP">
             {whoop && whoop.recovery ? (
