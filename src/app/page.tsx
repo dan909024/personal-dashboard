@@ -9,9 +9,11 @@ import {
   getRecentSleepEdits,
   getDashboardAppleHealth,
   getDashboardScreentime,
+  getDashboardWhoopWorkouts,
   type SystemHealth,
   type SleepEdit,
   type DashboardAppleHealth,
+  type DashboardWhoopWorkouts,
   type ScreenTimeRow,
 } from "@/lib/sheets";
 import { getDashboardWeakness } from "@/lib/weakness";
@@ -145,6 +147,7 @@ export default async function Dashboard({
     sysHealth,
     sleepEdits,
     appleHealth,
+    whoopWorkouts,
     screentime,
     weakness,
   ] = await Promise.all([
@@ -158,6 +161,9 @@ export default async function Dashboard({
     configured
       ? getDashboardAppleHealth()
       : Promise.resolve(null as DashboardAppleHealth | null),
+    configured
+      ? getDashboardWhoopWorkouts()
+      : Promise.resolve(null as DashboardWhoopWorkouts | null),
     configured
       ? getDashboardScreentime()
       : Promise.resolve([] as ScreenTimeRow[]),
@@ -311,7 +317,11 @@ export default async function Dashboard({
 
           {/* Row 2 */}
           <Tile title="GYM (LADDER)">
-            <GymTileBody appleHealth={appleHealth} configured={configured} />
+            <GymTileBody
+              workouts={whoopWorkouts}
+              whoopConnected={whoopConnected}
+              configured={configured}
+            />
           </Tile>
 
           <Tile title="NUTRITION">
@@ -515,48 +525,54 @@ function formatWorkoutDuration(min: number): string {
 }
 
 function GymTileBody({
-  appleHealth,
+  workouts,
+  whoopConnected,
   configured,
 }: {
-  appleHealth: DashboardAppleHealth | null;
+  workouts: DashboardWhoopWorkouts | null;
+  whoopConnected: boolean;
   configured: boolean;
 }) {
   if (!configured) {
     return (
       <>
-        <StatRow label="Today" value="" badge="✅" />
+        <StatRow label="Today" value="Run" badge="✅" />
+        <StatRow label="This week" value="4 workouts" />
         <StatRow label="Streak" value="6 days" />
-        <StatRow label="Latest" value="Run · 32m · Strava" />
+        <p className="text-xs text-zinc-500 mt-2">Latest: Run · 32m · strain 14.2</p>
       </>
     );
   }
+  if (!whoopConnected) {
+    return <ConnectWhoopCta />;
+  }
   const hasAnyData =
-    !!appleHealth &&
-    (appleHealth.todayWorkouts.length > 0 ||
-      appleHealth.weekWorkoutCount > 0 ||
-      appleHealth.lastSynced ||
-      appleHealth.workoutStreak > 0);
+    !!workouts &&
+    (workouts.todayWorkouts.length > 0 ||
+      workouts.weekWorkoutCount > 0 ||
+      workouts.lastSynced ||
+      workouts.workoutStreak > 0);
   if (!hasAnyData) {
     return (
       <div>
-        <p className="text-sm text-zinc-400">Connect Apple Health</p>
+        <p className="text-sm text-zinc-400">No Whoop workouts synced yet</p>
         <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-1">
-          See SETUP-APPLEHEALTH.md
+          Daily cron at 8am AEST
         </p>
       </div>
     );
   }
-  const todayWorkouts = appleHealth!.todayWorkouts;
+  const todayWorkouts = workouts!.todayWorkouts;
   const todayBadge = todayWorkouts.length > 0 ? "✅" : "❌";
   const todayValue =
     todayWorkouts.length > 0
       ? todayWorkouts.length === 1
-        ? todayWorkouts[0].type
+        ? todayWorkouts[0].sportName
         : `${todayWorkouts.length} workouts`
       : "No workout logged";
   const todayBadgeColor =
     todayWorkouts.length > 0 ? "text-green-400" : "text-red-400";
-  const latest = appleHealth!.latestWorkout;
+  const latest = workouts!.latestWorkout;
   return (
     <>
       <StatRow
@@ -565,13 +581,16 @@ function GymTileBody({
         badge={todayBadge}
         badgeColor={todayBadgeColor}
       />
-      <StatRow label="This week" value={`${appleHealth!.weekWorkoutCount} workouts`} />
-      <StatRow label="Streak" value={`${appleHealth!.workoutStreak} day${appleHealth!.workoutStreak === 1 ? "" : "s"}`} />
+      <StatRow label="This week" value={`${workouts!.weekWorkoutCount} workouts`} />
+      <StatRow
+        label="Streak"
+        value={`${workouts!.workoutStreak} day${workouts!.workoutStreak === 1 ? "" : "s"}`}
+      />
       {latest && (
         <p className="text-xs text-zinc-500 mt-2">
-          Latest: {latest.workout.type} ·{" "}
-          {formatWorkoutDuration(latest.workout.durationMin)} ·{" "}
-          {latest.workout.source}
+          Latest: {latest.sportName} ·{" "}
+          {formatWorkoutDuration(latest.durationMin)}
+          {typeof latest.strain === "number" && ` · strain ${latest.strain.toFixed(1)}`}
         </p>
       )}
     </>

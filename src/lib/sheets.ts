@@ -87,6 +87,19 @@ export const TAB_SCHEMAS = {
     "Source",
     "Synced at",
   ],
+  "Whoop Workouts": [
+    "Date",
+    "Workout ID",
+    "Sport ID",
+    "Strain",
+    "Duration min",
+    "Avg HR",
+    "Max HR",
+    "Kilojoules",
+    "Start",
+    "End",
+    "Synced at",
+  ],
   "Screen Time": [
     "Date",
     "Source",
@@ -1391,6 +1404,224 @@ export const getDashboardAppleHealth = unstable_cache(
   ["dashboard:apple-health"],
   { revalidate: 60 }
 );
+
+// ---------- Whoop Workouts ----------
+//
+// Server-side mirror of Whoop's /activity/workout feed. Fed by the
+// daily whoop-sync cron, which fetches the target date's workouts
+// after upserting the daily rollup. Idempotent on Workout ID
+// (column B) — the cron checks before appending, so re-running the
+// sync for the same day doesn't duplicate.
+//
+// Drives the GYM tile (today / week count / streak / latest). Apple
+// Health workouts (from the iOS Shortcut payload) are intentionally
+// not merged here — Whoop is the authoritative source for now.
+
+export type WhoopWorkoutRow = {
+  date: string;
+  workoutId: string;
+  sportId: number | null;
+  strain: number | null;
+  durationMin: number;
+  avgHr: number | null;
+  maxHr: number | null;
+  kilojoules: number | null;
+  start: string;
+  end: string;
+  syncedAt: string;
+};
+
+export async function whoopWorkoutIdExists(workoutId: string): Promise<boolean> {
+  if (!workoutId || !isConfigured()) return false;
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Whoop Workouts!B2:B",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const rows = (res.data.values || []) as (string | number)[][];
+    for (const r of rows) {
+      if (r && String(r[0]) === workoutId) return true;
+    }
+    return false;
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return false;
+    console.error("[sheets] whoopWorkoutIdExists:", msg);
+    return false;
+  }
+}
+
+export async function appendWhoopWorkout(row: WhoopWorkoutRow): Promise<void> {
+  const client = sheetsClient();
+  await ensureTab("Whoop Workouts");
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Whoop Workouts!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[
+        row.date,
+        row.workoutId,
+        row.sportId ?? "",
+        row.strain ?? "",
+        row.durationMin,
+        row.avgHr ?? "",
+        row.maxHr ?? "",
+        row.kilojoules ?? "",
+        row.start,
+        row.end,
+        row.syncedAt,
+      ]],
+    },
+  });
+}
+
+export type DashboardWhoopWorkout = {
+  date: string;
+  workoutId: string;
+  sportName: string;
+  sportId: number | null;
+  strain: number | null;
+  durationMin: number;
+};
+
+export type DashboardWhoopWorkouts = {
+  todayWorkouts: DashboardWhoopWorkout[];
+  weekWorkoutCount: number;
+  latestWorkout: DashboardWhoopWorkout | null;
+  workoutStreak: number;
+  lastSynced: string;
+};
+
+const EMPTY_WHOOP_WORKOUTS: DashboardWhoopWorkouts = {
+  todayWorkouts: [],
+  weekWorkoutCount: 0,
+  latestWorkout: null,
+  workoutStreak: 0,
+  lastSynced: "",
+};
+
+export const getDashboardWhoopWorkouts = unstable_cache(
+  async (): Promise<DashboardWhoopWorkouts> => {
+    if (!isConfigured()) return EMPTY_WHOOP_WORKOUTS;
+    try {
+      const client = sheetsClient();
+      const res = await client.spreadsheets.values.get({
+        spreadsheetId: sheetId(),
+        range: "Whoop Workouts!A1:K",
+        valueRenderOption: "UNFORMATTED_VALUE",
+        dateTimeRenderOption: "FORMATTED_STRING",
+      });
+      const rows = (res.data.values || []) as (string | number)[][];
+      if (rows.length < 2) return EMPTY_WHOOP_WORKOUTS;
+
+      const today = todaySydneyISO();
+      const sevenDaysAgoMs = Date.parse(today + "T00:00:00+10:00") - 6 * 86400 * 1000;
+
+      const all: (DashboardWhoopWorkout & { syncedAt: string })[] = [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || r.length === 0) continue;
+        const date = normalizeDate(r[0] as string | number | undefined);
+        if (!date) continue;
+        const sportId =
+          r[2] === "" || r[2] === undefined || r[2] === null ? null : Number(r[2]);
+        all.push({
+          date,
+          workoutId: String(r[1] ?? ""),
+          sportName: whoopSportName(sportId),
+          sportId,
+          strain:
+            r[3] === "" || r[3] === undefined || r[3] === null ? null : Number(r[3]),
+          durationMin: Number(r[4]) || 0,
+          syncedAt: String(r[10] ?? ""),
+        });
+      }
+
+      // Newest first by date, then by sync recency as tiebreaker.
+      all.sort((a, b) => {
+        if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+        return a.syncedAt < b.syncedAt ? 1 : a.syncedAt > b.syncedAt ? -1 : 0;
+      });
+
+      const todayWorkouts = all.filter((w) => w.date === today).map(strip);
+      const workoutsByDay = new Map<string, number>();
+      for (const w of all) {
+        workoutsByDay.set(w.date, (workoutsByDay.get(w.date) ?? 0) + 1);
+      }
+
+      let weekWorkoutCount = 0;
+      for (const [date, count] of workoutsByDay) {
+        const ms = Date.parse(date + "T12:00:00Z");
+        if (!isNaN(ms) && ms >= sevenDaysAgoMs) weekWorkoutCount += count;
+      }
+
+      const latestWorkout = all[0] ? strip(all[0]) : null;
+
+      // Streak ends at today (or yesterday if today is empty so morning
+      // viewers don't see an artificial reset).
+      const todayCount = workoutsByDay.get(today) ?? 0;
+      let cursor = todayCount > 0
+        ? today
+        : new Date(Date.parse(today + "T00:00:00+10:00") - 86400 * 1000)
+            .toISOString()
+            .slice(0, 10);
+      let streak = 0;
+      while ((workoutsByDay.get(cursor) ?? 0) > 0) {
+        streak++;
+        cursor = new Date(Date.parse(cursor + "T00:00:00Z") - 86400 * 1000)
+          .toISOString()
+          .slice(0, 10);
+      }
+
+      const lastSynced = all
+        .map((w) => w.syncedAt)
+        .filter(Boolean)
+        .sort()
+        .reverse()[0] || "";
+
+      return { todayWorkouts, weekWorkoutCount, latestWorkout, workoutStreak: streak, lastSynced };
+    } catch (e) {
+      const msg = (e as Error).message || "";
+      if (msg.includes("Unable to parse range") || msg.includes("not found")) {
+        return EMPTY_WHOOP_WORKOUTS;
+      }
+      console.error("[sheets] getDashboardWhoopWorkouts:", msg);
+      return EMPTY_WHOOP_WORKOUTS;
+    }
+  },
+  ["dashboard:whoop-workouts"],
+  { revalidate: 60 }
+);
+
+function strip(w: DashboardWhoopWorkout & { syncedAt: string }): DashboardWhoopWorkout {
+  const { syncedAt: _ignored, ...rest } = w;
+  void _ignored;
+  return rest;
+}
+
+// Best-effort Whoop sport_id → friendly name. Whoop has ~80 sports;
+// only the ones likely to appear are mapped here. Unknown IDs render
+// as "Workout" — refine when a recurring sport_id surfaces in the data.
+function whoopSportName(sportId: number | null): string {
+  if (sportId === null) return "Workout";
+  const map: Record<number, string> = {
+    [-1]: "Activity",
+    0: "Running",
+    1: "Cycling",
+    16: "Baseball",
+    33: "Yoga",
+    45: "Weightlifting",
+    48: "Functional Fitness",
+    52: "HIIT",
+    62: "Pilates",
+    63: "Walking",
+    71: "Hiking",
+  };
+  return map[sportId] ?? "Workout";
+}
 
 // ---------- Screen Time ----------
 //
