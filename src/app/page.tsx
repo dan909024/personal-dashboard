@@ -392,14 +392,9 @@ export default async function Dashboard({
           </Tile>
         </div>
 
-        {/* Recent sleep edits */}
+        {/* Tamper log — proves Whoop sleep stats are untouched (or shows the diff if not) */}
         <div className="px-4 pb-4">
-          <div className="border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4">
-            <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
-              RECENT SLEEP EDITS
-            </p>
-            <SleepEditsList edits={sleepEdits} configured={configured} />
-          </div>
+          <TamperLog edits={sleepEdits} configured={configured} />
         </div>
 
         {/* Proof Drops embed */}
@@ -761,47 +756,76 @@ function ageMinutes(iso: string): number | null {
   return Math.max(0, Math.round((Date.now() - t) / 60000));
 }
 
-function SleepEditsList({
+function TamperLog({
   edits,
   configured,
 }: {
   edits: SleepEdit[];
   configured: boolean;
 }) {
-  if (!configured) {
-    return <p className="text-xs text-zinc-500 italic">unconfigured</p>;
-  }
   // Filter to last 7 days
   const sevenDaysAgo = Date.now() - 7 * 24 * 3600 * 1000;
-  const recent = edits.filter((e) => {
-    const t = Date.parse(e.detectedAt);
-    return !isNaN(t) && t >= sevenDaysAgo;
-  });
-  if (recent.length === 0) {
-    return (
-      <p className="text-xs text-green-400">No recent edits ✅</p>
-    );
-  }
+  const recent = configured
+    ? edits.filter((e) => {
+        const t = Date.parse(e.detectedAt);
+        return !isNaN(t) && t >= sevenDaysAgo;
+      })
+    : [];
+  const tampered = recent.length > 0;
+
+  // Container colour shifts: clean = subtle dark, tampered = red border + tint.
+  const containerClass = !configured
+    ? "border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4"
+    : tampered
+    ? "border border-red-700 bg-red-950/40 backdrop-blur-sm p-4"
+    : "border border-emerald-900 bg-[#0f0f0f]/85 backdrop-blur-sm p-4";
+
+  const titleColor = tampered ? "text-red-300" : "text-zinc-500";
+
   return (
-    <div className="space-y-1.5">
-      {recent.map((e, i) => (
-        <div
-          key={`${e.detectedAt}-${i}`}
-          className="flex flex-wrap items-center gap-2 text-xs text-zinc-300"
-        >
-          <span className="text-zinc-500 shrink-0 tabular-nums">
-            {fmtDetectedAt(e.detectedAt)}
-          </span>
-          <span className="text-zinc-400 uppercase tracking-wider text-[10px] shrink-0">
-            {e.fieldChanged}
-          </span>
-          <span className="font-mono">
-            <span className="text-red-300">{e.oldValue || "—"}</span>
-            <span className="text-zinc-600"> → </span>
-            <span className="text-green-300">{e.newValue || "—"}</span>
-          </span>
-        </div>
-      ))}
+    <div className={containerClass}>
+      <p
+        className={`text-[10px] font-bold tracking-widest uppercase mb-3 ${titleColor}`}
+      >
+        TAMPER LOG
+      </p>
+      {!configured ? (
+        <p className="text-xs text-zinc-500 italic">unconfigured</p>
+      ) : !tampered ? (
+        <p className="text-xs text-emerald-400">
+          Clean — stats untouched for 7 days ✅
+        </p>
+      ) : (
+        <>
+          <p className="text-xs text-red-300 font-bold mb-2 uppercase tracking-wider">
+            ⚠ {recent.length} edit{recent.length === 1 ? "" : "s"} detected in
+            last 7 days
+          </p>
+          <div className="space-y-1.5">
+            {recent.map((e, i) => (
+              <div
+                key={`${e.detectedAt}-${i}`}
+                className="flex flex-wrap items-center gap-2 text-xs text-zinc-200"
+              >
+                <span className="text-red-400 shrink-0">⚠</span>
+                <span className="text-zinc-400 shrink-0 tabular-nums">
+                  {fmtDetectedAt(e.detectedAt)}
+                </span>
+                <span className="text-zinc-300 uppercase tracking-wider text-[10px] shrink-0">
+                  {e.fieldChanged}
+                </span>
+                <span className="font-mono">
+                  <span className="text-zinc-400 line-through">
+                    {e.oldValue || "—"}
+                  </span>
+                  <span className="text-zinc-500"> → </span>
+                  <span className="text-red-200">{e.newValue || "—"}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
