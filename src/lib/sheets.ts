@@ -749,7 +749,7 @@ export async function upsertWhoopDaily(row: WhoopDailyRow): Promise<{ action: "a
     dateTimeRenderOption: "FORMATTED_STRING",
   });
   const rows = (get.data.values || []) as (string | number)[][];
-  const values = [
+  const newValues: (string | number)[] = [
     row.date,
     row.recovery,
     row.strain,
@@ -765,11 +765,19 @@ export async function upsertWhoopDaily(row: WhoopDailyRow): Promise<{ action: "a
     const d = normalizeDate(r[0] as string | number | undefined);
     if (d === row.date) {
       const sheetRow = i + 1; // 1-indexed
+      // Preserve any existing non-empty cell when the new value is
+      // empty. Whoop sometimes hasn't finished scoring at cron-run
+      // time; later runs should fill in gaps without clobbering
+      // previously-good data.
+      const existing = r as (string | number)[];
+      const merged = newValues.map((v, idx) =>
+        isEmpty(v) ? existing[idx] ?? "" : v
+      );
       await client.spreadsheets.values.update({
         spreadsheetId: id,
         range: `Whoop Daily!A${sheetRow}:H${sheetRow}`,
         valueInputOption: "USER_ENTERED",
-        requestBody: { values: [values] },
+        requestBody: { values: [merged] },
       });
       return { action: "updated", rowIndex: sheetRow };
     }
@@ -779,9 +787,15 @@ export async function upsertWhoopDaily(row: WhoopDailyRow): Promise<{ action: "a
     spreadsheetId: id,
     range: "Whoop Daily!A1",
     valueInputOption: "USER_ENTERED",
-    requestBody: { values: [values] },
+    requestBody: { values: [newValues] },
   });
   return { action: "appended", rowIndex: rows.length + 1 };
+}
+
+function isEmpty(v: string | number | undefined | null): boolean {
+  if (v === undefined || v === null) return true;
+  if (typeof v === "number") return false;
+  return String(v).trim() === "";
 }
 
 // ---------- Phase 2C: System Health + Sleep Edits ----------
