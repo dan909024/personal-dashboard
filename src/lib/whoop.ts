@@ -441,12 +441,16 @@ export async function getDailyRollup(dateISO: string): Promise<DailyRollup> {
   ]);
 
   // --- Cycle for day D ---
-  // Match by end-date in user TZ. If end is null (cycle still running
-  // at fetch time), match by start-date == D. Tie-break by max strain.
+  // Only consider SCORED cycles. PENDING/UNSCORABLE items have no
+  // score yet (Whoop is still aggregating); writing them produces
+  // empty values that visually overwrite previously-good data on
+  // re-run. We'd rather skip and let a later cron tick fill it in.
   const dayCycles = cycles.filter((c) => {
+    if (c.score_state && c.score_state !== "SCORED") return false;
     const endDate = c.end ? localDateOf(new Date(c.end)) : null;
     if (endDate === dateISO) return true;
-    if (!c.end && c.start && localDateOf(new Date(c.start)) === dateISO) return true;
+    // Don't match in-progress cycles (no end) — those are by
+    // definition unscored and can't tell us yesterday's strain.
     return false;
   });
   const chosenCycle =
@@ -456,9 +460,13 @@ export async function getDailyRollup(dateISO: string): Promise<DailyRollup> {
     undefined;
   const strain = chosenCycle?.score?.strain;
 
-  // --- Recovery for that cycle ---
+  // --- Recovery for that cycle (must also be SCORED) ---
   const recovery = chosenCycle
-    ? recoveries.find((r) => r.cycle_id === chosenCycle.id)
+    ? recoveries.find(
+        (r) =>
+          r.cycle_id === chosenCycle.id &&
+          (!r.score_state || r.score_state === "SCORED")
+      )
     : undefined;
   const recoveryScore = recovery?.score?.recovery_score;
   const rhr = recovery?.score?.resting_heart_rate;

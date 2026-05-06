@@ -51,35 +51,83 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Yesterday in Australia/Sydney — that's the day whose Whoop data is
-  // ready by 8am local. We compute the date string directly to avoid
-  // tz/DST traps when running at the boundary.
-  const target = req.nextUrl.searchParams.get("date") || yesterdayInSydney();
+  // Sync a 3-day window so late-scored fields backfill on subsequent
+  // runs (Whoop sometimes hasn't finished scoring "yesterday" at 8am
+  // Sydney). For an explicit ?date=YYYY-MM-DD, we sync just that day.
+  const explicit = req.nextUrl.searchParams.get("date");
+  const targets = explicit
+    ? [explicit]
+    : [
+        twoDaysAgoInSydney(),
+        yesterdayInSydney(),
+        todayInSydney(),
+      ];
 
-  try {
-    const rollup = await getDailyRollup(target);
-    const result = await upsertWhoopDaily({
-      date: rollup.date,
-      recovery: rollup.recovery,
-      strain: rollup.strain,
-      sleepHours: rollup.sleepHours,
-      wakeTime: rollup.wakeTime,
-      bedTime: rollup.bedTime,
-      rhr: rollup.rhr,
-      hrv: rollup.hrv,
-    });
-    return NextResponse.json({
-      ok: true,
-      action: result.action,
-      rowIndex: result.rowIndex,
-      date: target,
-      values: rollup,
-    });
-  } catch (e) {
-    const msg = (e as Error).message;
-    console.error("[whoop-sync] failed:", msg);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  const perDay: Array<{
+    date: string;
+    action?: "appended" | "updated";
+    rowIndex?: number;
+    values?: unknown;
+    error?: string;
+  }> = [];
+
+  for (const target of targets) {
+    try {
+      const rollup = await getDailyRollup(target);
+      const result = await upsertWhoopDaily({
+        date: rollup.date,
+        recovery: rollup.recovery,
+        strain: rollup.strain,
+        sleepHours: rollup.sleepHours,
+        wakeTime: rollup.wakeTime,
+        bedTime: rollup.bedTime,
+        rhr: rollup.rhr,
+        hrv: rollup.hrv,
+      });
+      perDay.push({
+        date: target,
+        action: result.action,
+        rowIndex: result.rowIndex,
+        values: rollup,
+      });
+    } catch (e) {
+      const msg = (e as Error).message;
+      console.error(`[whoop-sync] ${target} failed:`, msg);
+      perDay.push({ date: target, error: msg });
+    }
   }
+
+  const anyError = perDay.some((d) => d.error);
+  return NextResponse.json(
+    {
+      ok: !anyError,
+      targets,
+      results: perDay,
+    },
+    { status: anyError ? 500 : 200 }
+  );
+}
+
+function todayInSydney(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function twoDaysAgoInSydney(): string {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const sydneyTodayStr = fmt.format(new Date());
+  const sydneyToday = new Date(sydneyTodayStr + "T00:00:00Z");
+  const d = new Date(sydneyToday.getTime() - 2 * 24 * 3600 * 1000);
+  return d.toISOString().slice(0, 10);
 }
 
 function yesterdayInSydney(): string {
