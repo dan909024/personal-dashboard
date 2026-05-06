@@ -2,28 +2,25 @@
 
 import { useEffect, useState } from "react";
 
-type Remaining = {
-  days: number;
-  hours: number;
-  minutes: number;
-  seconds: number;
-};
-
-function diff(targetMs: number, nowMs: number): Remaining {
+function diff(targetMs: number, nowMs: number) {
   const ms = Math.max(0, targetMs - nowMs);
-  const days = Math.floor(ms / 86_400_000);
-  const hours = Math.floor((ms % 86_400_000) / 3_600_000);
-  const minutes = Math.floor((ms % 3_600_000) / 60_000);
-  const seconds = Math.floor((ms % 60_000) / 1000);
-  return { days, hours, minutes, seconds };
+  return {
+    days: Math.floor(ms / 86_400_000),
+    hours: Math.floor((ms % 86_400_000) / 3_600_000),
+    minutes: Math.floor((ms % 3_600_000) / 60_000),
+    seconds: Math.floor((ms % 60_000) / 1000),
+  };
 }
 
-function pad2(n: number): string {
-  return n.toString().padStart(2, "0");
-}
+const pad2 = (n: number) => n.toString().padStart(2, "0");
 
+/**
+ * Inline countdown rendered next to the Denied pill in the Weakness Altar
+ * header. Returns null while loading, when no target is set, or once the
+ * target has passed — that way the parent can render `Denied <DenialClock />`
+ * unconditionally and the clock just disappears when there's nothing to show.
+ */
 export default function DenialClock() {
-  // undefined = still loading; null = fetched but no target set
   const [endDate, setEndDate] = useState<string | null | undefined>(undefined);
   const [now, setNow] = useState<number>(() => Date.now());
 
@@ -33,8 +30,7 @@ export default function DenialClock() {
       .then((r) => r.json())
       .then((d) => {
         if (cancelled) return;
-        const v = d && typeof d.endDate === "string" ? d.endDate : null;
-        setEndDate(v);
+        setEndDate(d && typeof d.endDate === "string" ? d.endDate : null);
       })
       .catch(() => {
         if (!cancelled) setEndDate(null);
@@ -49,36 +45,17 @@ export default function DenialClock() {
     return () => clearInterval(id);
   }, []);
 
-  if (endDate === undefined) {
-    return <p className="text-xs text-zinc-500 italic">loading…</p>;
-  }
-
-  const targetMs = endDate ? Date.parse(endDate) : NaN;
-  const released = !endDate || isNaN(targetMs) || targetMs <= now;
-
-  if (released) {
-    return (
-      <>
-        <p className="text-3xl font-bold text-green-400 mb-2">RELEASED</p>
-        <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
-          {endDate ? "target reached" : "no target set"}
-        </p>
-      </>
-    );
-  }
+  if (!endDate) return null;
+  const targetMs = Date.parse(endDate);
+  if (isNaN(targetMs) || targetMs <= now) return null;
 
   const r = diff(targetMs, now);
   return (
     <>
-      <p className="text-[10px] font-bold tracking-widest text-red-400 uppercase mb-2">
-        LOCKED
-      </p>
-      <p className="text-2xl font-bold text-white tabular-nums mb-1">
+      <span className="text-zinc-600">·</span>
+      <span className="tabular-nums">
         {r.days}d {pad2(r.hours)}h {pad2(r.minutes)}m {pad2(r.seconds)}s
-      </p>
-      <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
-        until release
-      </p>
+      </span>
     </>
   );
 }
