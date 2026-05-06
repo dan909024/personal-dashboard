@@ -94,6 +94,13 @@ async function main() {
     await appendRows("Settings", SETTINGS_SEED_ROWS);
   }
 
+  if (created.includes("Denial")) {
+    console.log("Seeding Denial config…");
+    await appendRows("Denial", [
+      ["denial_end_date", ""],
+    ]);
+  }
+
   console.log("Done.");
 }
 

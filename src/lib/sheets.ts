@@ -99,6 +99,7 @@ export const TAB_SCHEMAS = {
   "Edge Log": ["Date", "Time", "Note"],
   "Daily Check-in": ["Date", "Arousal (1-10)", "Note"],
   Settings: ["Setting", "Value", "Last Updated", "Updated By"],
+  Denial: ["Key", "Value"],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -1253,6 +1254,30 @@ export type DashboardAppleHealth = {
   workoutStreak: number;
   lastSynced: string;
 };
+
+// ---------- Denial Tracker ----------
+//
+// Single key/value config tab. Currently holds one row:
+//   denial_end_date | ISO 8601 timestamp (e.g. 2026-05-20T23:59:00+10:00)
+// Empty value means "no target set" — the dashboard treats that as released.
+
+export const getDenialEndDate = unstable_cache(
+  async (): Promise<string | null> => {
+    const rows = await readTab("Denial");
+    if (!rows || rows.length < 2) return null;
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      const key = String(r[0] ?? "").trim();
+      if (key !== "denial_end_date") continue;
+      const value = String(r[1] ?? "").trim();
+      return value || null;
+    }
+    return null;
+  },
+  ["dashboard:denial:end-date"],
+  { revalidate: 30 }
+);
 
 export const getDashboardAppleHealth = unstable_cache(
   async (): Promise<DashboardAppleHealth> => {
