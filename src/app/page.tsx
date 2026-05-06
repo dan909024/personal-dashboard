@@ -8,9 +8,11 @@ import {
   getDashboardSystemHealth,
   getRecentSleepEdits,
   getDashboardAppleHealth,
+  getDashboardScreentime,
   type SystemHealth,
   type SleepEdit,
   type DashboardAppleHealth,
+  type ScreenTimeRow,
 } from "@/lib/sheets";
 
 // Revalidate the page every 30s in production.
@@ -54,6 +56,71 @@ function fmtTime(d: Date): string {
   });
 }
 
+// ---------- Screen time summary ----------
+
+type PhoneTileSummary = {
+  todayDate: string;
+  todayApps: { label: string; minutes: number; sources: string[] }[];
+  todayTotal: number;
+  sevenDayTotal: number;
+  // If today has no data but the last 7 days do, fall back to 7-day top apps.
+  fallbackApps: { label: string; minutes: number; sources: string[] }[];
+};
+
+function summarizeScreentime(rows: ScreenTimeRow[]): PhoneTileSummary {
+  const todayDate = todayInSydney();
+  const today = rows.filter((r) => r.date === todayDate);
+  const todayApps = aggregateTopApps(today, 3);
+  const fallbackApps = aggregateTopApps(rows, 3);
+  const todayTotal = today.reduce((s, r) => s + r.minutes, 0);
+  const sevenDayTotal = rows.reduce((s, r) => s + r.minutes, 0);
+  return { todayDate, todayApps, todayTotal, sevenDayTotal, fallbackApps };
+}
+
+function aggregateTopApps(
+  rows: ScreenTimeRow[],
+  n: number,
+): { label: string; minutes: number; sources: string[] }[] {
+  const map = new Map<string, { minutes: number; sources: Set<string> }>();
+  for (const r of rows) {
+    const e = map.get(r.label) || { minutes: 0, sources: new Set<string>() };
+    e.minutes += r.minutes;
+    e.sources.add(r.source);
+    map.set(r.label, e);
+  }
+  return Array.from(map.entries())
+    .map(([label, v]) => ({
+      label,
+      minutes: v.minutes,
+      sources: Array.from(v.sources),
+    }))
+    .sort((a, b) => b.minutes - a.minutes)
+    .slice(0, n);
+}
+
+function todayInSydney(): string {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return fmt.format(new Date());
+}
+
+function fmtPhoneMinutes(m: number): string {
+  if (!Number.isFinite(m) || m <= 0) return "0m";
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return mm === 0 ? `${h}h` : `${h}h ${mm}m`;
+}
+
+function phoneBadge(minutes: number): string {
+  // Conservative threshold — tighten per-app once a baseline exists.
+  return minutes >= 60 ? "⚠" : "✅";
+}
+
 // ---------- Page ----------
 
 type DashboardSearchParams = Promise<{ whoop?: string; whoop_error?: string }>;
@@ -76,6 +143,7 @@ export default async function Dashboard({
     sysHealth,
     sleepEdits,
     appleHealth,
+    screentime,
   ] = await Promise.all([
     configured ? getOpenTasks(3) : Promise.resolve([]),
     configured ? getPunishments() : Promise.resolve([]),
@@ -87,8 +155,12 @@ export default async function Dashboard({
     configured
       ? getDashboardAppleHealth()
       : Promise.resolve(null as DashboardAppleHealth | null),
+    configured
+      ? getDashboardScreentime()
+      : Promise.resolve([] as ScreenTimeRow[]),
   ]);
 
+  const phoneSummary = summarizeScreentime(screentime);
   const owedThisWeek = punishments.reduce((sum, p) => sum + (p.paid ? 0 : p.amount), 0);
   const week = isoWeekNumber();
   const review = daysUntilSunday();
@@ -227,7 +299,7 @@ export default async function Dashboard({
           </Tile>
 
           <Tile title="PHONE">
-            <NotTrackedYet />
+            <PhoneTile configured={configured} summary={phoneSummary} />
           </Tile>
 
           {/* Row 3 */}
@@ -491,6 +563,67 @@ function GymTileBody({
   );
 }
 
+
+function PhoneTile({
+  configured,
+  summary,
+}: {
+  configured: boolean;
+  summary: PhoneTileSummary;
+}) {
+  if (!configured) {
+    return (
+      <>
+        <StatRow label="IG" value="8 min" badge="✅" />
+        <StatRow label="YT" value="62 min" badge="⚠" badgeColor="text-amber-400" />
+        <StatRow label="Dating" value="clean" badge="✅" />
+      </>
+    );
+  }
+  if (summary.todayApps.length === 0 && summary.fallbackApps.length === 0) {
+    return <NoData />;
+  }
+  if (summary.todayApps.length > 0) {
+    return (
+      <>
+        {summary.todayApps.map((a) => (
+          <StatRow
+            key={a.label}
+            label={a.label}
+            value={fmtPhoneMinutes(a.minutes)}
+            badge={phoneBadge(a.minutes)}
+            badgeColor={
+              phoneBadge(a.minutes) === "✅"
+                ? "text-green-400"
+                : "text-amber-400"
+            }
+          />
+        ))}
+        <p className="text-xs text-zinc-500 mt-2">
+          today {fmtPhoneMinutes(summary.todayTotal)}
+          {summary.sevenDayTotal > 0
+            ? ` · 7d ${fmtPhoneMinutes(summary.sevenDayTotal)}`
+            : ""}
+        </p>
+      </>
+    );
+  }
+  // No data yet for today — show 7-day top apps as a fallback.
+  return (
+    <>
+      {summary.fallbackApps.map((a) => (
+        <StatRow
+          key={a.label}
+          label={a.label}
+          value={fmtPhoneMinutes(a.minutes)}
+        />
+      ))}
+      <p className="text-xs text-amber-400/80 mt-2">
+        no data today yet · 7d {fmtPhoneMinutes(summary.sevenDayTotal)}
+      </p>
+    </>
+  );
+}
 
 function Stat({
   label,
