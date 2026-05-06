@@ -1275,6 +1275,53 @@ export type DashboardAppleHealth = {
 //   denial_end_date | ISO 8601 timestamp (e.g. 2026-05-20T23:59:00+10:00)
 // Empty value means "no target set" — the dashboard treats that as released.
 
+export const DENIAL_END_DATE_TAG = "denial:end-date";
+
+export async function readDenialEndDate(): Promise<string | null> {
+  const rows = await readTab("Denial");
+  if (!rows || rows.length < 2) return null;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const key = String(r[0] ?? "").trim();
+    if (key !== "denial_end_date") continue;
+    const value = String(r[1] ?? "").trim();
+    return value || null;
+  }
+  return null;
+}
+
+export async function setDenialEndDate(value: string): Promise<void> {
+  await ensureTab("Denial");
+  const client = sheetsClient();
+  const id = sheetId();
+  const get = await client.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: "Denial!A1:B",
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
+  const rows = (get.data.values || []) as (string | number)[][];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    if (String(r[0] ?? "").trim() === "denial_end_date") {
+      const sheetRow = i + 1;
+      await client.spreadsheets.values.update({
+        spreadsheetId: id,
+        range: `Denial!A${sheetRow}:B${sheetRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [["denial_end_date", value]] },
+      });
+      return;
+    }
+  }
+  await client.spreadsheets.values.append({
+    spreadsheetId: id,
+    range: "Denial!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [["denial_end_date", value]] },
+  });
+}
+
 export const getDenialEndDate = unstable_cache(
   async (): Promise<string | null> => {
     const rows = await readTab("Denial");
@@ -1290,7 +1337,7 @@ export const getDenialEndDate = unstable_cache(
     return null;
   },
   ["dashboard:denial:end-date"],
-  { revalidate: 30 }
+  { revalidate: 30, tags: [DENIAL_END_DATE_TAG] }
 );
 
 export const getDashboardAppleHealth = unstable_cache(
