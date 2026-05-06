@@ -923,6 +923,38 @@ export const getDashboardSystemHealth = unstable_cache(
   { revalidate: 60 }
 );
 
+/**
+ * Last `days` days of Whoop Daily rows, oldest first. Used by the
+ * weekly summary email. Reads the whole tab and filters in JS — fine
+ * for tabs with hundreds of rows; revisit if it grows past thousands.
+ */
+export async function getRecentWhoopDaily(days = 7): Promise<WhoopDaily[]> {
+  const rows = await readTab("Whoop Daily");
+  if (!rows || rows.length < 2) return [];
+  const cutoffMs = Date.now() - days * 86400 * 1000;
+  const out: WhoopDaily[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const d = normalizeDate(r[0]);
+    if (!d) continue;
+    const ms = Date.parse(d + "T12:00:00Z");
+    if (isNaN(ms) || ms < cutoffMs) continue;
+    out.push({
+      date: d,
+      recovery: String(r[1] ?? ""),
+      strain: String(r[2] ?? ""),
+      sleep: String(r[3] ?? ""),
+      wakeTime: String(r[4] ?? ""),
+      bedTime: String(r[5] ?? ""),
+      rhr: String(r[6] ?? ""),
+      hrv: String(r[7] ?? ""),
+    });
+  }
+  out.sort((a, b) => (a.date < b.date ? -1 : 1));
+  return out;
+}
+
 // ---------- Amex Transactions ----------
 //
 // Append-only event log fed by /api/amex/inbound. Each row is one
