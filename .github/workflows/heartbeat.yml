@@ -1,0 +1,33 @@
+name: System heartbeat (every 5 min)
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit heartbeat endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DASHBOARD_BASE_URL: ${{ secrets.DASHBOARD_BASE_URL }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$DASHBOARD_BASE_URL/api/cron/heartbeat")
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "Status: $status"
+          echo "Body: $body"
+          if [ "$status" -ne 200 ]; then
+            echo "Heartbeat failed"
+            exit 1
+          fi
+      - name: Ping Healthchecks
+        if: success()
+        env:
+          HEALTHCHECK_HEARTBEAT_URL: ${{ secrets.HEALTHCHECK_HEARTBEAT_URL }}
+        run: |
+          if [ -n "$HEALTHCHECK_HEARTBEAT_URL" ]; then
+            curl -fsS --retry 3 "$HEALTHCHECK_HEARTBEAT_URL"
+          fi

@@ -4,8 +4,8 @@
  * Receives parsed Amex AU transaction-alert emails from an inbound-email
  * provider (CloudMailin / Postmark / Resend Inbound). The flow is:
  *
- *   Amex (alerts@welcome.americanexpress.com) → [redacted]
- *     → Gmail filter auto-forwards to [redacted]
+ *   Amex (alerts@welcome.americanexpress.com) → user's Gmail inbox
+ *     → Gmail filter auto-forwards to the CloudMailin inbound address
  *       → CloudMailin POSTs JSON here
  *         → we parse + append a row to "Amex Transactions" sheet
  *

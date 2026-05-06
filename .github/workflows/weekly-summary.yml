@@ -27,10 +27,11 @@ jobs:
       - name: Trigger weekly summary endpoint
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DASHBOARD_BASE_URL: ${{ secrets.DASHBOARD_BASE_URL }}
         run: |
           response=$(curl -s -w "\n%{http_code}" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "https://personal-dashboard-six-tan.vercel.app/api/cron/weekly-summary")
+            "$DASHBOARD_BASE_URL/api/cron/weekly-summary")
 
           status=$(echo "$response" | tail -n1)
           body=$(echo "$response" | sed '$d')

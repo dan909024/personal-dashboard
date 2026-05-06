@@ -25,8 +25,9 @@ failure cannot result in a green Healthchecks ping. Either Harley gets
 the summary, or she gets a "tracking went dark" alert from Healthchecks.
 
 This was moved from Vercel cron to GitHub Actions because the Hobby
-plan caps at 2 cron jobs and `whoop-sync` + `heartbeat` already use
-both.
+plan caps at 2 cron jobs. `heartbeat` has since also moved to a GitHub
+Actions workflow (see `SETUP-HEARTBEAT.md`), leaving Vercel with only
+`whoop-sync`.
 
 ---
 
@@ -39,6 +40,7 @@ In **GitHub repo → Settings → Secrets and variables → Actions → New repo
 | Secret                     | Value                                                                       |
 | -------------------------- | --------------------------------------------------------------------------- |
 | `CRON_SECRET`              | Same value as the `CRON_SECRET` env var in Vercel.                          |
+| `DASHBOARD_BASE_URL`       | Production base URL of the deployed dashboard (no trailing slash). Shared with the heartbeat workflow. |
 | `HEALTHCHECK_WEEKLY_URL`   | The "ping URL" from the Healthchecks.io check you create in step 2.        |
 
 `RESEND_API_KEY` and `HARLEY_EMAIL` are **not** needed in GitHub —
