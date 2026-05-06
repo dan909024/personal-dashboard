@@ -8,14 +8,10 @@ import {
   getDashboardSystemHealth,
   getRecentSleepEdits,
   getDashboardAppleHealth,
-  getDashboardAmexToday,
-  getBudgetMonthly,
   getDashboardScreentime,
   type SystemHealth,
   type SleepEdit,
   type DashboardAppleHealth,
-  type DashboardAmexToday,
-  type BudgetMonthly,
   type ScreenTimeRow,
 } from "@/lib/sheets";
 
@@ -147,8 +143,6 @@ export default async function Dashboard({
     sysHealth,
     sleepEdits,
     appleHealth,
-    amexToday,
-    budget,
     screentime,
   ] = await Promise.all([
     configured ? getOpenTasks(3) : Promise.resolve([]),
@@ -161,10 +155,6 @@ export default async function Dashboard({
     configured
       ? getDashboardAppleHealth()
       : Promise.resolve(null as DashboardAppleHealth | null),
-    configured
-      ? getDashboardAmexToday()
-      : Promise.resolve(null as DashboardAmexToday | null),
-    configured ? getBudgetMonthly() : Promise.resolve(null as BudgetMonthly | null),
     configured
       ? getDashboardScreentime()
       : Promise.resolve([] as ScreenTimeRow[]),
@@ -314,7 +304,7 @@ export default async function Dashboard({
 
           {/* Row 3 */}
           <Tile title="MONEY">
-            <MoneyTileBody budget={budget} amexToday={amexToday} configured={configured} />
+            <NotTrackedYet />
           </Tile>
 
           <Tile title="PUNISHMENTS THIS WEEK">
@@ -573,80 +563,6 @@ function GymTileBody({
   );
 }
 
-function formatMoney(n: number, currency = "AUD"): string {
-  if (!Number.isFinite(n)) return "—";
-  const symbol = currency === "AUD" || currency === "USD" ? "$" : "";
-  const abs = Math.abs(n);
-  const formatted = abs >= 1000
-    ? abs.toLocaleString("en-AU", { maximumFractionDigits: 0 })
-    : abs.toLocaleString("en-AU", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
-  return `${n < 0 ? "-" : ""}${symbol}${formatted}`;
-}
-
-function MoneyTileBody({
-  budget,
-  amexToday,
-  configured,
-}: {
-  budget: BudgetMonthly | null;
-  amexToday: DashboardAmexToday | null;
-  configured: boolean;
-}) {
-  if (!configured) {
-    return (
-      <>
-        <StatRow label="This month" value="$3,210 / $4,500" />
-        <StatRow label="Today" value="2 charges · $84" />
-        <p className="text-xs text-zinc-500 mt-2">Latest: Coles · $32 · 14:02</p>
-      </>
-    );
-  }
-  return (
-    <>
-      {budget ? (
-        <StatRow
-          label={budget.monthLabel}
-          value={`${formatMoney(budget.actual)} / ${formatMoney(budget.planned)}`}
-          valueColor={
-            budget.planned > 0 && budget.actual > budget.planned
-              ? "text-red-400"
-              : "text-white"
-          }
-        />
-      ) : (
-        <p className="text-[11px] text-zinc-500 italic">
-          Budget not configured (set BUDGET_SHEET_ID)
-        </p>
-      )}
-      <StatRow
-        label="Today"
-        value={
-          amexToday && amexToday.count > 0
-            ? `${amexToday.count} charge${amexToday.count === 1 ? "" : "s"} · ${formatMoney(amexToday.total, amexToday.currency)}`
-            : "no charges yet"
-        }
-      />
-      {amexToday?.mostRecent && (
-        <p className="text-xs text-zinc-500 mt-2 truncate">
-          Latest: {amexToday.mostRecent.merchant || "—"} ·{" "}
-          {formatMoney(amexToday.mostRecent.amount, amexToday.currency)} ·{" "}
-          {fmtSyncedAt(amexToday.mostRecent.syncedAt)}
-        </p>
-      )}
-    </>
-  );
-}
-
-function fmtSyncedAt(iso: string): string {
-  const t = Date.parse(iso);
-  if (isNaN(t)) return "—";
-  return new Date(t).toLocaleTimeString("en-AU", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "Australia/Sydney",
-  });
-}
 
 function PhoneTile({
   configured,
