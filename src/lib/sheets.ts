@@ -118,6 +118,16 @@ export const TAB_SCHEMAS = {
   "Magic Links": ["Token", "Created at", "Expires at", "Used at", "IP"],
   "Magic Link Audit": ["Timestamp", "IP", "Action", "Detail"],
   "Sync Triggers": ["Timestamp", "IP", "Whoop", "Manual asks", "Email sent", "Source"],
+  "Harley Payments": [
+    "Date",
+    "Amount",
+    "Currency",
+    "Network",
+    "To Address",
+    "Email ID",
+    "Subject",
+    "Synced at",
+  ],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -1149,6 +1159,232 @@ export const getDashboardAmex = unstable_cache(
   ["dashboard:amex"],
   { revalidate: 60 }
 );
+
+// ---------- Harley Ledger ----------
+//
+// One running balance Daniel owes Harley. Two inputs:
+//   1. Punishments tab — per-incident fines (existing). Each unpaid
+//      row counts toward the balance until marked paid.
+//   2. Harley Payments tab (new) — USDT/USDC withdrawals from
+//      Crypto.com received via /api/crypto/inbound. Each row reduces
+//      the balance.
+//
+// Plus an automatic monthly fine of $1000 appended on the 1st of
+// each month by /api/cron/monthly-fine. Idempotent on the
+// "Monthly fee — <Month> <Year>" Reason string so duplicate cron
+// fires don't double-charge.
+
+export type HarleyPaymentRow = {
+  date: string;
+  amount: number;
+  currency: string;        // USDT / USDC
+  network: string;
+  toAddress: string;
+  emailId: string;
+  subject: string;
+  syncedAt: string;
+};
+
+export async function appendHarleyPayment(row: HarleyPaymentRow): Promise<void> {
+  const client = sheetsClient();
+  await ensureTab("Harley Payments");
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Harley Payments!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[
+        row.date,
+        row.amount,
+        row.currency,
+        row.network,
+        row.toAddress,
+        row.emailId,
+        row.subject,
+        row.syncedAt,
+      ]],
+    },
+  });
+}
+
+export async function harleyPaymentEmailIdExists(emailId: string): Promise<boolean> {
+  if (!emailId || !isConfigured()) return false;
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Harley Payments!F2:F",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const rows = (res.data.values || []) as string[][];
+    for (const r of rows) {
+      if (r && r[0] === emailId) return true;
+    }
+    return false;
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return false;
+    console.error("[sheets] harleyPaymentEmailIdExists:", msg);
+    return false;
+  }
+}
+
+export async function getRecentHarleyPayments(days = 90): Promise<HarleyPaymentRow[]> {
+  if (!isConfigured()) return [];
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Harley Payments!A1:H",
+      valueRenderOption: "UNFORMATTED_VALUE",
+      dateTimeRenderOption: "FORMATTED_STRING",
+    });
+    const rows = (res.data.values || []) as (string | number)[][];
+    if (rows.length < 2) return [];
+    const cutoffMs = Date.now() - days * 86400 * 1000;
+    const out: HarleyPaymentRow[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      const date = normalizeDate(r[0] as string | number | undefined);
+      if (!date) continue;
+      const ms = Date.parse(date + "T12:00:00Z");
+      if (isNaN(ms) || ms < cutoffMs) continue;
+      out.push({
+        date,
+        amount: Number(r[1] ?? 0) || 0,
+        currency: String(r[2] ?? ""),
+        network: String(r[3] ?? ""),
+        toAddress: String(r[4] ?? ""),
+        emailId: String(r[5] ?? ""),
+        subject: String(r[6] ?? ""),
+        syncedAt: String(r[7] ?? ""),
+      });
+    }
+    return out.sort((a, b) => (a.date < b.date ? 1 : -1));
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return [];
+    console.error("[sheets] getRecentHarleyPayments:", msg);
+    return [];
+  }
+}
+
+/**
+ * Read all unpaid Punishments (no week filter — everything counts
+ * toward the running balance until marked paid).
+ */
+async function getAllUnpaidPunishments(): Promise<Punishment[]> {
+  const rows = await readTab("Punishments");
+  if (!rows || rows.length < 2) return [];
+  const out: Punishment[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const date = normalizeDate(r[0]);
+    if (!date) continue;
+    const amount = Number(String(r[1] || "0").replace(/[^0-9.\-]/g, "")) || 0;
+    const paid = isTruthy(r[4]);
+    if (paid) continue;
+    out.push({
+      date,
+      amount,
+      reason: r[2] || "",
+      setBy: r[3] || "",
+      paid,
+    });
+  }
+  return out;
+}
+
+export type HarleyBalance = {
+  owed: number;
+  finesTotal: number;
+  paidTotal: number;
+  fineCount: number;
+  paymentCount: number;
+  recentActivity: Array<
+    | { kind: "fine"; date: string; amount: number; reason: string }
+    | { kind: "payment"; date: string; amount: number; currency: string }
+  >;
+};
+
+export const getHarleyBalance = unstable_cache(
+  async (): Promise<HarleyBalance> => {
+    const [punishments, payments] = await Promise.all([
+      getAllUnpaidPunishments(),
+      getRecentHarleyPayments(365),
+    ]);
+    const finesTotal = punishments.reduce((s, p) => s + p.amount, 0);
+    // Trust 1:1 USDT/USDC = $ for now; flag in PR if precision matters.
+    const paidTotal = payments.reduce((s, p) => s + p.amount, 0);
+    const merged: HarleyBalance["recentActivity"] = [
+      ...punishments.map((p) => ({
+        kind: "fine" as const,
+        date: p.date,
+        amount: p.amount,
+        reason: p.reason,
+      })),
+      ...payments.map((p) => ({
+        kind: "payment" as const,
+        date: p.date,
+        amount: p.amount,
+        currency: p.currency,
+      })),
+    ].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 6);
+    return {
+      owed: finesTotal - paidTotal,
+      finesTotal,
+      paidTotal,
+      fineCount: punishments.length,
+      paymentCount: payments.length,
+      recentActivity: merged,
+    };
+  },
+  ["dashboard:harley-balance"],
+  { revalidate: 60 }
+);
+
+/**
+ * Idempotent monthly-fine appender. Skips if a Punishment row with
+ * Reason="Monthly fee — <Month> <Year>" already exists for the
+ * current Sydney month. Returns whether a row was appended.
+ */
+export async function appendMonthlyFineIfMissing(
+  amount = 1000
+): Promise<{ appended: boolean; reason: string; monthLabel: string }> {
+  const client = sheetsClient();
+  const now = new Date();
+  const monthLabel = new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Sydney",
+    month: "long",
+    year: "numeric",
+  }).format(now);
+  const reason = `Monthly fee — ${monthLabel}`;
+
+  // Read all reason cells (column C) to dedupe
+  const rows = await readTab("Punishments");
+  if (rows) {
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r) continue;
+      if (String(r[2] ?? "").trim() === reason) {
+        return { appended: false, reason, monthLabel };
+      }
+    }
+  }
+
+  const today = todaySydneyISO();
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Punishments!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[today, amount, reason, "auto", "no"]],
+    },
+  });
+  return { appended: true, reason, monthLabel };
+}
 
 // ---------- Apple Health ----------
 //
