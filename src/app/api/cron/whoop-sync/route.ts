@@ -156,6 +156,11 @@ async function syncWorkouts(
     console.warn("[whoop-sync] getWorkouts failed:", msg);
     return { fetched: 0, appended: 0, error: msg };
   }
+  // TEMP DIAGNOSTIC: log raw workouts so we can see whether the endpoint
+  // returns nothing or returns items that the skip-pending logic filters.
+  console.warn(
+    `[whoop-sync] raw response: date=${target} workouts=${JSON.stringify(workouts)}`
+  );
   let appended = 0;
   for (const w of workouts) {
     const id = String(w.id);
