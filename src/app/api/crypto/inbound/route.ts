@@ -244,6 +244,29 @@ export async function POST(req: NextRequest) {
 
   const email = adapt(payload);
   if (!email) return bad("unrecognised_payload_shape");
+
+  // Gmail forwarding-verification special-case (same as /api/amex/inbound).
+  // CloudMailin Free only PRESERVES response bodies for 4xx — so we
+  // intentionally return 422 with the verification code/URL extracted
+  // from the body. Must run BEFORE the missing_message_id check, since
+  // Gmail's verification email lacks a stable Message-ID.
+  if (/forwarding-noreply@google\.com/i.test(email.from)) {
+    const body = pickBody(email);
+    const codes = Array.from(new Set(
+      Array.from(body.matchAll(/\b(\d{6,12})\b/g)).map((m) => m[1])
+    ));
+    const urls = Array.from(new Set(
+      Array.from(body.matchAll(/https?:\/\/[^\s"'<>]+/g)).map((m) => m[0])
+    ));
+    return NextResponse.json({
+      gmail_forwarding_verification: true,
+      code_candidates: codes,
+      url_candidates: urls,
+      body_preview: body.slice(0, 1500),
+      hint: "422 is intentional — CloudMailin Free only preserves response bodies for 4xx. Look for a confirmation URL in url_candidates or a code in code_candidates.",
+    }, { status: 422 });
+  }
+
   if (!email.messageId) return bad("missing_message_id");
   if (!isFromCryptoCom(email.from)) {
     return bad("sender_not_crypto_com", 422);
