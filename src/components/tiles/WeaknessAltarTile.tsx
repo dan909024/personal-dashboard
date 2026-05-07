@@ -100,6 +100,13 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
         <div>
           <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase">
             Goddess&apos;s Weakening Altar
+            <a
+              href="/altar-guide"
+              className="ml-2 text-zinc-500 hover:text-purple-200 normal-case tracking-normal text-[11px]"
+              title="How this works"
+            >
+              guide ↗
+            </a>
           </p>
           <p className="text-[11px] text-zinc-400 italic mt-0.5">{ALTAR_TAGLINE}</p>
         </div>
