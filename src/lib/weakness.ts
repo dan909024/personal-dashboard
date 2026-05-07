@@ -73,31 +73,54 @@ export function determinePhase(
   };
 }
 
-// ---------- Brutal multiplier (zone 2 of edge curve) ----------
+// ---------- Edge intensity curve (intensify-then-decay) ----------
+//
+// `brutal_bonus_threshold` is reinterpreted as the count of edges in the
+// INTENSIFY zone — the per-edge multiplier ramps linearly from 1.0 at
+// edge #1 to `brutal_bonus_max_multiplier` at edge `threshold`. Past
+// the threshold, contributions decay via `weakness_edge_day_decay`
+// per excess edge.
+//
+// Net shape per day-edge index d (0-based):
+//   d < threshold − 1:
+//     contribution = edge_first × cycle_decay^c × (1 + d × per_step)
+//     where per_step = (max − 1) / (threshold − 1)
+//   d >= threshold − 1:
+//     contribution = edge_first × cycle_decay^c × max × day_decay^(d − (threshold − 1))
+//
+// First 5–10 edges of the day get more intense (rising); after that
+// each additional edge contributes less (decay).
 
+/**
+ * Per-edge multiplier for an edge at within-day index `d` (0-indexed).
+ * Reports the multiplier ONLY — the cycle_decay and edge_first are
+ * applied separately in computeDailyGain.
+ */
+function edgeIntensityMultiplier(
+  d: number,
+  settings: WeaknessSettings
+): number {
+  const peakIndex = Math.max(1, settings.brutal_bonus_threshold) - 1;
+  const max = settings.brutal_bonus_max_multiplier;
+  if (d <= peakIndex) {
+    if (peakIndex === 0) return max;
+    return 1.0 + (d / peakIndex) * (max - 1.0);
+  }
+  const excess = d - peakIndex;
+  return max * Math.pow(settings.weakness_edge_day_decay, excess);
+}
+
+/**
+ * The HEADLINE multiplier reported on the tile = the multiplier applied
+ * to the most-recent edge logged today. Mirrors the user-facing meaning
+ * of "current intensity" rather than the legacy whole-day multiplier.
+ */
 export function computeBrutalBonusMultiplier(
   todaysEdges: number,
   settings: WeaknessSettings
 ): number {
-  if (todaysEdges <= settings.brutal_bonus_threshold) return 1.0;
-  const excess = todaysEdges - settings.brutal_bonus_threshold;
-  const multiplier = 1.0 + excess * settings.brutal_bonus_per_edge;
-  return Math.min(multiplier, settings.brutal_bonus_max_multiplier);
-}
-
-/**
- * Day-edge count above which the brutal multiplier hits its cap. Past this
- * count, every additional edge adds a flat linear amount (zone 3 of the
- * edge curve) instead of multiplying further.
- */
-function multiplierPlateauCount(settings: WeaknessSettings): number {
-  if (settings.brutal_bonus_per_edge <= 0) {
-    return Number.POSITIVE_INFINITY;
-  }
-  const excessAtCap =
-    (settings.brutal_bonus_max_multiplier - 1.0) /
-    settings.brutal_bonus_per_edge;
-  return settings.brutal_bonus_threshold + excessAtCap;
+  if (todaysEdges <= 0) return 1.0;
+  return edgeIntensityMultiplier(todaysEdges - 1, settings);
 }
 
 // ---------- Daily gain ----------
@@ -133,19 +156,17 @@ export function computeDailyGain(
 ): DailyGain {
   const todaysEdges = edgeLogs.filter((e) => e.date === date).length;
 
-  // --- Edge curve: zone 1 (diminished) + zone 2 (multiplier) + zone 3 (linear plateau)
-  let diminishedSum = 0;
+  // --- Edge curve: per-edge contribution = edge_first × cycle_decay^c × intensity(d)
+  // intensity(d) ramps up across the first `threshold` edges (peaking at the
+  // threshold) then decays by day_decay per excess edge.
+  let edgeContribution = 0;
   for (let d = 0; d < todaysEdges; d++) {
     const c = cycleEdgesBeforeDay + d;
     const cyc = Math.pow(settings.weakness_edge_cycle_decay, c);
-    const day = Math.pow(settings.weakness_edge_day_decay, d);
-    diminishedSum += settings.weakness_edge_first * cyc * day;
+    const intensity = edgeIntensityMultiplier(d, settings);
+    edgeContribution += settings.weakness_edge_first * cyc * intensity;
   }
   const brutalMultiplier = computeBrutalBonusMultiplier(todaysEdges, settings);
-  const plateauCount = multiplierPlateauCount(settings);
-  const plateauEdges = Math.max(0, todaysEdges - plateauCount);
-  const plateauLinear = plateauEdges * settings.brutal_bonus_post_plateau_linear;
-  const edgeContribution = diminishedSum * brutalMultiplier + plateauLinear;
 
   // --- Arousal (default when missing)
   const checkIn = checkIns.find((c) => c.date === date);
