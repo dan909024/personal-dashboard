@@ -2730,14 +2730,18 @@ export async function markMagicLinkUsed(token: string): Promise<void> {
 
 /**
  * One-off audit helper: for every Magic Links row whose Created at
- * timestamp falls within [startMs, endMs] AND has neither a Used at
- * value nor a Note, set Used at = now and Note = the supplied label.
+ * timestamp falls within [startMs, endMs], stamp the Note column with
+ * the supplied label. The original Used at value is preserved if it
+ * was already set (a real login event), otherwise it's stamped to now
+ * so the row is visually closed. Skips rows that already have a Note,
+ * making the helper idempotent across re-runs.
  *
  * The data row is preserved (deletion would lose the audit trail).
- * The note column makes it visually obvious that the row was never
- * legitimately consumed by the original recipient.
+ * The Note column flags the row as anomalous regardless of whether
+ * the magic link was ultimately consumed by the original (wrong)
+ * recipient.
  *
- * Returns the count of rows touched.
+ * Returns matched (rows in window) and updated (rows actually written).
  */
 export async function purgeMagicLinksInWindow(opts: {
   startMs: number;
@@ -2763,15 +2767,16 @@ export async function purgeMagicLinksInWindow(opts: {
     if (!Number.isFinite(ts)) continue;
     if (ts < opts.startMs || ts > opts.endMs) continue;
     matched++;
-    const usedAt = r[3] ? String(r[3]) : "";
+    const existingUsedAt = r[3] ? String(r[3]) : "";
     const existingNote = r[5] ? String(r[5]) : "";
-    if (usedAt || existingNote) continue; // already accounted for
+    if (existingNote) continue; // idempotent: already noted
+    const newUsedAt = existingUsedAt || now;
     const sheetRow = i + 1;
     await client.spreadsheets.values.update({
       spreadsheetId: id,
       range: `Magic Links!D${sheetRow}:F${sheetRow}`,
       valueInputOption: "RAW",
-      requestBody: { values: [[now, String(r[4] ?? ""), opts.note]] },
+      requestBody: { values: [[newUsedAt, String(r[4] ?? ""), opts.note]] },
     });
     updated++;
   }
