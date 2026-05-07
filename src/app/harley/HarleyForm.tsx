@@ -12,6 +12,14 @@ import {
 
 type ActionResult = { ok: true } | { ok: false; error: string } | { ok: true; newEndDate: string };
 
+type SyncResult = {
+  ok: boolean;
+  whoop: "ok" | "error" | "not_connected" | "not_configured";
+  whoopDetail?: string;
+  manualAsks: string[];
+  emailSent: boolean;
+};
+
 export function HarleyForm({
   endDate,
   allowed,
@@ -23,6 +31,8 @@ export function HarleyForm({
   const [isPending, startTransition] = useTransition();
   const [absoluteDate, setAbsoluteDate] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncResult | { error: string } | null>(null);
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -66,6 +76,29 @@ export function HarleyForm({
   const onDeny = () => {
     if (!confirm("Deny him now?")) return;
     run("Denied", () => setOrgasmAllowedAdminAction("no"));
+  };
+
+  const onSyncNow = async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/sync/trigger", { method: "POST" });
+      const body = (await res.json()) as SyncResult | { error: string };
+      setSyncResult(body);
+      if ("ok" in body && body.ok) {
+        flash("Synced ✓");
+      } else if ("error" in body) {
+        flash(`Sync error: ${body.error}`);
+      } else {
+        flash("Sync had issues — see details");
+      }
+    } catch (e) {
+      const msg = (e as Error).message;
+      setSyncResult({ error: msg });
+      flash(`Sync failed: ${msg}`);
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const summary = describeEndDate(endDate);
@@ -158,6 +191,61 @@ export function HarleyForm({
           <p className="text-[10px] text-zinc-500 mt-2">
             Time in Sydney. Replaces the current target.
           </p>
+        </div>
+
+        {/* Sync Now */}
+        <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+            Sync now
+          </p>
+          <p className="text-[11px] text-zinc-500 mb-3 italic">
+            Pulls fresh Whoop data and emails Daniel a manual-asks list for the rest.
+          </p>
+          <button
+            type="button"
+            onClick={onSyncNow}
+            disabled={syncing || isPending}
+            className="w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border border-purple-700 bg-purple-950/40 text-purple-200 hover:border-purple-400 hover:bg-purple-900/60 transition-colors disabled:opacity-50"
+          >
+            {syncing ? "Syncing…" : "Sync now"}
+          </button>
+          {syncResult && (
+            <div className="mt-3 text-[11px] text-zinc-300 font-mono">
+              {"error" in syncResult ? (
+                <p className="text-rose-300">Error: {syncResult.error}</p>
+              ) : (
+                <>
+                  <p>
+                    Whoop:{" "}
+                    <span
+                      className={
+                        syncResult.whoop === "ok"
+                          ? "text-emerald-300"
+                          : "text-amber-300"
+                      }
+                    >
+                      {syncResult.whoop}
+                    </span>
+                    {syncResult.whoopDetail && (
+                      <span className="text-zinc-500"> · {syncResult.whoopDetail}</span>
+                    )}
+                  </p>
+                  <p className="mt-1">
+                    Daniel email:{" "}
+                    <span className={syncResult.emailSent ? "text-emerald-300" : "text-amber-300"}>
+                      {syncResult.emailSent ? "sent" : "not sent"}
+                    </span>
+                  </p>
+                  <p className="mt-2 text-zinc-400">Manual asks emailed to Daniel:</p>
+                  <ul className="mt-1 list-disc pl-4 text-zinc-400">
+                    {syncResult.manualAsks.map((a, i) => (
+                      <li key={i} className="break-words">{a}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Toggle + clear */}
