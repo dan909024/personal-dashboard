@@ -20,6 +20,15 @@ import {
 import { getDashboardWeakness } from "@/lib/weakness";
 import { WeaknessAltarTile } from "@/components/tiles/WeaknessAltarTile";
 import { SyncButton } from "@/components/SyncButton";
+import {
+  dedupeAppsPreferMac,
+  displayAppName,
+  dropCategoryRows,
+  fmtPhoneMinutes,
+  phoneBadge,
+  SCREENTIME_CAP_MINUTES,
+} from "@/lib/screentime-display";
+import Link from "next/link";
 
 // Revalidate the page every 30s in production.
 export const revalidate = 30;
@@ -75,62 +84,17 @@ type PhoneTileSummary = {
 
 function summarizeScreentime(rows: ScreenTimeRow[]): PhoneTileSummary {
   const todayDate = todayInSydney();
-  const today = rows.filter((r) => r.date === todayDate);
+  // Drop iOS-Shortcut category-level rows (sent alongside per-app rows
+  // for the same period — summing both double-counts), then for each
+  // (date, app) prefer mac_launchd over ios_shortcut to collapse the
+  // cross-source duplicate that "Share Across Devices" produces.
+  const cleaned = dedupeAppsPreferMac(dropCategoryRows(rows));
+  const today = cleaned.filter((r) => r.date === todayDate);
   const todayApps = aggregateTopApps(today, 3);
-  const fallbackApps = aggregateTopApps(rows, 3);
+  const fallbackApps = aggregateTopApps(cleaned, 3);
   const todayTotal = today.reduce((s, r) => s + r.minutes, 0);
-  const sevenDayTotal = rows.reduce((s, r) => s + r.minutes, 0);
+  const sevenDayTotal = cleaned.reduce((s, r) => s + r.minutes, 0);
   return { todayDate, todayApps, todayTotal, sevenDayTotal, fallbackApps };
-}
-
-// Bundle id → friendly display name. Apps not listed here render as
-// their raw label (bundle id from mac_launchd, or free-text from
-// ios_shortcut). Add entries as new apps appear in the data.
-const APP_DISPLAY_NAMES: Record<string, string> = {
-  // Mac apps
-  "com.anthropic.claudefordesktop": "Claude Desktop",
-  "com.tinyspeck.slackmacgap": "Slack",
-  "com.openai.atlas": "Atlas",
-  "com.google.Chrome": "Chrome",
-  "com.granola.app": "Granola",
-  "com.daisydiskapp.DaisyDiskStandAlone": "DaisyDisk",
-  "com.apple.Terminal": "Terminal",
-  "com.apple.finder": "Finder",
-  "com.apple.TextEdit": "TextEdit",
-  "com.apple.Safari": "Safari",
-  "com.apple.Photos": "Photos",
-  "com.apple.MobileSMS": "Messages",
-  "com.apple.systempreferences": "System Settings",
-  "com.apple.shortcuts": "Shortcuts",
-  "com.apple.ScreenContinuity": "Screen Continuity",
-  // iOS apps that may surface via Share Across Devices
-  "com.burbn.instagram": "Instagram",
-  "com.atebits.Tweetie2": "X",
-  "com.toyopagroup.picaboo": "Snapchat",
-  "com.cardify.tinder": "Tinder",
-  "co.match.tinder": "Tinder",
-  "com.hinge.app": "Hinge",
-  "com.bumble.app": "Bumble",
-  "ru.keepcoder.Telegram": "Telegram",
-  "com.apple.mobilesafari": "Safari",
-  "com.apple.mobilemail": "Mail",
-  "com.apple.mobilenotes": "Notes",
-  "com.apple.mobilecal": "Calendar",
-  "com.apple.mobilephone": "Phone",
-  "com.spotify.client": "Spotify",
-  "com.apple.podcasts": "Podcasts",
-  "com.netflix.Netflix": "Netflix",
-  "com.google.ios.youtube": "YouTube",
-  "com.zhiliaoapp.musically": "TikTok",
-  "com.facebook.Facebook": "Facebook",
-  "com.facebook.Messenger": "Messenger",
-  "net.whatsapp.WhatsApp": "WhatsApp",
-  "com.apple.iBooks": "Books",
-  "com.apple.Maps": "Maps",
-};
-
-function displayAppName(label: string): string {
-  return APP_DISPLAY_NAMES[label] ?? label;
 }
 
 function aggregateTopApps(
@@ -165,19 +129,6 @@ function todayInSydney(): string {
     day: "2-digit",
   });
   return fmt.format(new Date());
-}
-
-function fmtPhoneMinutes(m: number): string {
-  if (!Number.isFinite(m) || m <= 0) return "0m";
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  return mm === 0 ? `${h}h` : `${h}h ${mm}m`;
-}
-
-function phoneBadge(minutes: number): string {
-  // Conservative threshold — tighten per-app once a baseline exists.
-  return minutes >= 60 ? "⚠" : "✅";
 }
 
 // ---------- Page ----------
@@ -384,9 +335,16 @@ export default async function Dashboard({
             <NotTrackedYet />
           </Tile>
 
-          <Tile title="PHONE">
+          <Link
+            href="/screentime"
+            className="block border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4 hover:border-[#333] transition-colors"
+          >
+            <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3 flex items-center justify-between">
+              PHONE
+              <span className="text-zinc-600 normal-case tracking-normal">details →</span>
+            </p>
             <PhoneTile configured={configured} summary={phoneSummary} />
-          </Tile>
+          </Link>
 
           {/* Row 3 */}
           <Tile title="MONEY">
@@ -705,19 +663,29 @@ function PhoneTile({
   if (summary.todayApps.length > 0) {
     return (
       <>
-        {summary.todayApps.map((a) => (
-          <StatRow
-            key={a.label}
-            label={a.label}
-            value={fmtPhoneMinutes(a.minutes)}
-            badge={phoneBadge(a.minutes)}
-            badgeColor={
-              phoneBadge(a.minutes) === "✅"
-                ? "text-green-400"
-                : "text-amber-400"
-            }
-          />
-        ))}
+        {summary.todayApps.map((a) => {
+          const badge = phoneBadge(a.minutes);
+          const capped = a.minutes >= SCREENTIME_CAP_MINUTES;
+          return (
+            <StatRow
+              key={a.label}
+              label={a.label}
+              value={
+                capped
+                  ? `${fmtPhoneMinutes(a.minutes)} (capped)`
+                  : fmtPhoneMinutes(a.minutes)
+              }
+              badge={badge}
+              badgeColor={
+                badge === "✅"
+                  ? "text-green-400"
+                  : badge === "❓"
+                  ? "text-rose-400"
+                  : "text-amber-400"
+              }
+            />
+          );
+        })}
         <p className="text-xs text-zinc-500 mt-2">
           today {fmtPhoneMinutes(summary.todayTotal)}
           {summary.sevenDayTotal > 0
