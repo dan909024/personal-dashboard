@@ -100,35 +100,23 @@ iOS shows the next scheduled run time.
 
 ## 3. Mac launchd (richer source, when laptop is open)
 
+The Mac collector reads `~/Library/Application Support/Knowledge/knowledgeC.db`
+— macOS's activity store. It's owner-readable on macOS 15+, so no Full
+Disk Access is required.
+
 ### One-time prerequisites
 
 1. **Enable Screen Time on this Mac**: System Settings → Screen Time
    → toggle on.
 2. **Enable cross-device sync**: same panel → **Share Across Devices**.
    Also turn it on in iPhone Settings → Screen Time. iOS app data will
-   start syncing into the Mac DB within minutes to hours.
-3. **Grant Full Disk Access**: System Settings → Privacy & Security →
-   Full Disk Access → click **+** → press `Cmd+Shift+G` and enter
-   `/usr/bin/env`. Toggle it on. Required for the script to read the
-   protected SQLite file. (You'd otherwise get permission-denied.)
+   start surfacing in the Mac DB within minutes to hours, attributed to
+   their iOS bundle ids.
 
-### Discover the schema (one-time, blocks the next step)
-
-The schema of `RemoteManagement.sqlite` is undocumented and varies
-between macOS versions, so we discover it on YOUR machine before
-finalizing the SQL:
-
-```
-bash scripts/screentime-discover.sh > /tmp/screentime-schema.txt 2>&1
-pbcopy < /tmp/screentime-schema.txt
-```
-
-Paste the output back into the conversation. Claude updates
-`SCREENTIME_QUERY` in [scripts/screentime-mac-sync.ts](scripts/screentime-mac-sync.ts)
-with the right SQL.
-
-Until then the Mac collector posts empty payloads — safe to schedule,
-just no rows ingested.
+That's it for prerequisites — no Full Disk Access dance, no schema
+discovery. If your macOS version has moved the DB elsewhere (older
+macOS or a future change), set `SCREENTIME_DB_PATH` in the plist to
+override.
 
 ### Install the launchd agent
 
