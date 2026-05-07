@@ -18,6 +18,7 @@ import {
 } from "@/lib/sheets";
 import { getDashboardWeakness } from "@/lib/weakness";
 import { WeaknessAltarTile } from "@/components/tiles/WeaknessAltarTile";
+import { SyncButton } from "@/components/SyncButton";
 
 // Revalidate the page every 30s in production.
 export const revalidate = 30;
@@ -286,6 +287,7 @@ export default async function Dashboard({
             </p>
             <div className="flex items-center gap-3 shrink-0">
               <SystemHealthPill health={sysHealth} configured={configured} />
+              <SyncButton />
               <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
                 Updated {lastUpdated}
               </p>

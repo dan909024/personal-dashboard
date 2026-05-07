@@ -138,6 +138,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResponse 
     whoop: whoop + (whoopDetail ? ` (${whoopDetail})` : ""),
     manualAsks: [...manualAsks],
     emailSent,
+    source: "harley",
   });
 
   // 5. Response.
