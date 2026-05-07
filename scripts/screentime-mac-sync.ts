@@ -1,11 +1,18 @@
 /**
  * Mac Screen Time collector.
  *
- * Reads ~/Library/Application Support/com.apple.RemoteManagementAgent/Database/
- * RemoteManagement.sqlite — the cross-device Screen Time database
- * (includes iPhone usage when "Share Across Devices" is on) — aggregates
- * per-app per-day minutes for the last N days, and POSTs to the
- * dashboard's screentime ingest endpoint.
+ * Reads ~/Library/Application Support/Knowledge/knowledgeC.db — macOS's
+ * activity store (Screen Time + app usage). Per-app per-day minutes,
+ * aggregated locally in $TZ, POSTed to the dashboard's screentime
+ * ingest endpoint.
+ *
+ * The DB is owner-readable on macOS 15+ — no Full Disk Access needed.
+ * On older macOS that path may differ; override with SCREENTIME_DB_PATH.
+ *
+ * iOS apps surface here when "Share Across Devices" is on in both
+ * iOS and macOS Screen Time settings. They typically appear under
+ * their iOS bundle ids (com.burbn.instagram, ru.keepcoder.Telegram, etc.)
+ * — same as Mac apps, just from a different device.
  *
  * Designed to run from launchd every few hours. Idempotent: re-posting
  * the same day produces additional rows but readers dedupe to latest by
@@ -20,15 +27,9 @@
  * Env vars:
  *   SCREENTIME_INGEST_URL    Required. Full URL to the ingest endpoint.
  *   SCREENTIME_INGEST_SECRET Required. Shared secret with the server.
- *   SCREENTIME_LOOKBACK_DAYS Optional, default 3.
+ *   SCREENTIME_LOOKBACK_DAYS Optional, default 3, max 30.
  *   SCREENTIME_TZ            Optional, default Australia/Sydney.
- *
- * IMPORTANT: the SQL in `SCREENTIME_QUERY` is a placeholder. The schema
- * of RemoteManagement.sqlite is undocumented and varies by macOS
- * version. Run scripts/screentime-discover.sh first to see what tables
- * and columns exist on YOUR machine, then replace the placeholder query
- * with one that returns rows in the shape the rest of this script
- * expects. Search for "SCHEMA TODO" below.
+ *   SCREENTIME_DB_PATH       Optional override for the SQLite path.
  */
 import { execSync } from "node:child_process";
 import {
@@ -44,10 +45,7 @@ import { join } from "node:path";
 
 const DB_PATH =
   process.env.SCREENTIME_DB_PATH ||
-  join(
-    homedir(),
-    "Library/Application Support/com.apple.RemoteManagementAgent/Database/RemoteManagement.sqlite"
-  );
+  join(homedir(), "Library/Application Support/Knowledge/knowledgeC.db");
 const INGEST_URL = process.env.SCREENTIME_INGEST_URL || "";
 const INGEST_SECRET = process.env.SCREENTIME_INGEST_SECRET || "";
 const LOOKBACK_DAYS = Math.max(
@@ -67,37 +65,39 @@ if (!INGEST_URL || !INGEST_SECRET) {
 if (!existsSync(DB_PATH)) {
   console.error(`Screen Time DB not found at ${DB_PATH}.`);
   console.error(
-    "Open Settings → Screen Time on this Mac to enable it, and 'Share Across Devices' on iPhone if you want iOS apps included."
+    "Enable Screen Time on this Mac (System Settings → Screen Time) and turn on 'Share Across Devices' there and on iPhone. The DB takes minutes-to-hours to populate after first enable. If your macOS version stores the data elsewhere, set SCREENTIME_DB_PATH."
   );
   process.exit(2);
 }
 
-// ---------- Schema-dependent SQL (FILL IN AFTER DISCOVERY) ----------
+// ---------- Query ----------
 //
-// SCHEMA TODO: replace this query with one that, against the live
-// RemoteManagement.sqlite on your macOS version, returns rows with the
-// shape:
+// knowledgeC.db schema (stable since Mojave):
+//   ZOBJECT
+//     ZSTREAMNAME    TEXT      -- "/app/usage" for foreground app sessions
+//     ZVALUESTRING   TEXT      -- bundle id (e.g. "com.apple.Safari")
+//     ZSTARTDATE     REAL      -- Cocoa epoch (seconds since 2001-01-01 UTC)
+//     ZENDDATE       REAL      -- Cocoa epoch
+// Convert Cocoa→Unix by adding 978307200.
 //
-//   day_local TEXT       -- YYYY-MM-DD in $TZ
-//   label     TEXT       -- bundle id or display name (e.g. "org.telegram.app")
-//   category  TEXT       -- optional, "" if none
-//   minutes   INTEGER    -- aggregated minutes that day
-//
-// Run scripts/screentime-discover.sh and paste the output back to
-// Claude — that turns this placeholder into a real query.
-//
-// The placeholder below intentionally returns no rows, so this script
-// is safe to schedule before the schema is known: it'll post empty
-// payloads (which the server skips) rather than crash.
+// We expand the lookback by one day on the SQL side so "today minus 3"
+// in $TZ never undershoots on a UTC-vs-local-day boundary; the JS
+// groupByDay step does the precise cutoff in $TZ.
 
 const SCREENTIME_QUERY = `
--- SCHEMA TODO — see scripts/screentime-discover.sh
 SELECT
-  '1970-01-01' AS day_local,
-  '__placeholder__' AS label,
-  ''                AS category,
-  0                 AS minutes
-WHERE 0 = 1;
+  DATE(ZSTARTDATE + 978307200, 'unixepoch', 'localtime') AS day_local,
+  ZVALUESTRING AS label,
+  '' AS category,
+  CAST(SUM(ZENDDATE - ZSTARTDATE) / 60.0 AS INTEGER) AS minutes
+FROM ZOBJECT
+WHERE ZSTREAMNAME = '/app/usage'
+  AND ZVALUESTRING IS NOT NULL
+  AND ZVALUESTRING != ''
+  AND ZSTARTDATE >= (strftime('%s', 'now', '-${LOOKBACK_DAYS + 1} days') - 978307200)
+GROUP BY day_local, label
+HAVING minutes > 0
+ORDER BY day_local DESC, minutes DESC;
 `;
 
 // ---------- DB copy + query ----------
@@ -173,7 +173,7 @@ function groupByDay(rows: RawRow[]): DayPayload[] {
     const minutes = Math.max(0, Math.round(Number(r.minutes) || 0));
     if (minutes === 0) continue;
     const label = String(r.label || "").trim();
-    if (!label || label === "__placeholder__") continue;
+    if (!label) continue;
     let day = byDay.get(date);
     if (!day) {
       day = { date, tz: TZ, source: SOURCE, items: [] };
@@ -231,7 +231,7 @@ async function main() {
 
     if (days.length === 0) {
       console.log(
-        `[screentime-mac-sync] no rows from query (lookback ${LOOKBACK_DAYS}d). If the schema TODO in this script hasn't been filled in, that's expected.`
+        `[screentime-mac-sync] no rows in lookback ${LOOKBACK_DAYS}d. Either Screen Time hasn't run yet, or the DB hasn't checkpointed since the last run.`
       );
       return;
     }
