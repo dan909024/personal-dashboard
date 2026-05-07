@@ -115,6 +115,7 @@ export const TAB_SCHEMAS = {
   Denial: ["Key", "Value"],
   "Magic Links": ["Token", "Created at", "Expires at", "Used at", "IP"],
   "Magic Link Audit": ["Timestamp", "IP", "Action", "Detail"],
+  "Sync Triggers": ["Timestamp", "IP", "Whoop", "Manual asks", "Email sent", "Source"],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -2376,5 +2377,80 @@ export async function countMagicLinkRequests(
     if (msg.includes("Unable to parse range") || msg.includes("not found")) return 0;
     console.error("[sheets] error reading Magic Link Audit:", msg);
     return 0;
+  }
+}
+
+// ---------- Sync Triggers ----------
+//
+// Audit log of /api/sync/trigger invocations from /harley. Append-only.
+// Like Magic Link Audit, the write must never throw — losing a row is
+// preferable to breaking the sync flow.
+
+export async function appendSyncTrigger(input: {
+  ip: string;
+  whoop: string;
+  manualAsks: string[];
+  emailSent: boolean;
+  source: "harley" | "dashboard";
+}): Promise<void> {
+  try {
+    const client = sheetsClient();
+    await ensureTab("Sync Triggers");
+    await client.spreadsheets.values.append({
+      spreadsheetId: sheetId(),
+      range: "Sync Triggers!A1",
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [[
+          new Date().toISOString(),
+          input.ip,
+          input.whoop,
+          input.manualAsks.join(" | "),
+          input.emailSent ? "yes" : "no",
+          input.source,
+        ]],
+      },
+    });
+  } catch (e) {
+    console.error("[sheets] sync trigger audit write failed:", (e as Error).message);
+  }
+}
+
+/**
+ * Used by the dashboard button to enforce 1/min/IP rate limit. Reads
+ * the last 100 audit rows and looks for a same-IP, same-source entry
+ * within the cutoff window. Returns null if none found, or the most
+ * recent matching timestamp ISO so the caller can compute retry-after.
+ */
+export async function getMostRecentSyncTriggerForIp(
+  ip: string,
+  source: "harley" | "dashboard"
+): Promise<string | null> {
+  if (!isConfigured() || !ip) return null;
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Sync Triggers!A1:F",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const rows = (res.data.values || []) as (string | number)[][];
+    if (rows.length < 2) return null;
+    // Walk newest-first (rows append in order so end is newest)
+    for (let i = rows.length - 1; i >= 1; i--) {
+      const r = rows[i];
+      if (!r) continue;
+      const rowIp = String(r[1] ?? "");
+      const rowSource = String(r[5] ?? "");
+      if (rowIp === ip && rowSource === source) {
+        return String(r[0] ?? "");
+      }
+    }
+    return null;
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return null;
+    console.error("[sheets] getMostRecentSyncTriggerForIp:", msg);
+    return null;
   }
 }
