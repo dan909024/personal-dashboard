@@ -440,50 +440,41 @@ export async function getDailyRollup(dateISO: string): Promise<DailyRollup> {
     }),
   ]);
 
-  // TEMP DIAGNOSTIC: log raw API responses so we can see what fields Whoop
-  // is returning vs what the mapping below is reading. Remove once the
-  // recovery/rhr/hrv blank-fields investigation closes.
-  console.warn(
-    `[whoop-sync] raw response: date=${dateISO} recoveries=${JSON.stringify(recoveries)}`
-  );
-  console.warn(
-    `[whoop-sync] raw response: date=${dateISO} cycles=${JSON.stringify(cycles)}`
-  );
-  console.warn(
-    `[whoop-sync] raw response: date=${dateISO} sleeps_count=${sleeps.length} sleep_score_states=${JSON.stringify(sleeps.map((s) => s.score_state))}`
-  );
-
-  // --- Cycle for day D ---
-  // Only consider SCORED cycles. PENDING/UNSCORABLE items have no
-  // score yet (Whoop is still aggregating); writing them produces
-  // empty values that visually overwrite previously-good data on
-  // re-run. We'd rather skip and let a later cron tick fill it in.
-  const dayCycles = cycles.filter((c) => {
-    if (c.score_state && c.score_state !== "SCORED") return false;
-    const endDate = c.end ? localDateOf(new Date(c.end)) : null;
-    if (endDate === dateISO) return true;
-    // Don't match in-progress cycles (no end) — those are by
-    // definition unscored and can't tell us yesterday's strain.
-    return false;
+  // --- Recovery and cycle for day D ---
+  // Anchor on recovery.created_at. Recovery is computed when the user
+  // wakes up, so its created_at directly identifies the calendar day
+  // it represents — no off-by-one when bedtime crosses midnight.
+  //
+  // Previously we anchored on cycle.end ("cycle that ended on day D"),
+  // but late bedtimes (e.g. bedtime 00:32 → cycle ends one calendar
+  // day later than expected) caused that cycle's recovery to fall in
+  // a different API page than its mapped day, leaving recovery blank.
+  // The recovery's created_at is the user's wake-time and is always
+  // on the morning of the day the row represents.
+  //
+  // The cycle whose recovery we just selected = the bed-to-bed cycle
+  // that contained the night's sleep. Its strain accumulates through
+  // the cycle's waking hours, which is the day's daily activity —
+  // matching how Whoop's own dashboard surfaces "today's strain".
+  // SCORED-only filter still applies; PENDING/UNSCORABLE items have
+  // no score and would write empty values that overwrite good data.
+  const recoveryForDay = recoveries.find((r) => {
+    if (r.score_state && r.score_state !== "SCORED") return false;
+    if (!r.created_at) return false;
+    return localDateOf(new Date(r.created_at)) === dateISO;
   });
-  const chosenCycle =
-    dayCycles
-      .slice()
-      .sort((a, b) => (b.score?.strain ?? -1) - (a.score?.strain ?? -1))[0] ||
-    undefined;
-  const strain = chosenCycle?.score?.strain;
+  const recoveryScore = recoveryForDay?.score?.recovery_score;
+  const rhr = recoveryForDay?.score?.resting_heart_rate;
+  const hrv = recoveryForDay?.score?.hrv_rmssd_milli;
 
-  // --- Recovery for that cycle (must also be SCORED) ---
-  const recovery = chosenCycle
-    ? recoveries.find(
-        (r) =>
-          r.cycle_id === chosenCycle.id &&
-          (!r.score_state || r.score_state === "SCORED")
+  const chosenCycle = recoveryForDay
+    ? cycles.find(
+        (c) =>
+          c.id === recoveryForDay.cycle_id &&
+          (!c.score_state || c.score_state === "SCORED")
       )
     : undefined;
-  const recoveryScore = recovery?.score?.recovery_score;
-  const rhr = recovery?.score?.resting_heart_rate;
-  const hrv = recovery?.score?.hrv_rmssd_milli;
+  const strain = chosenCycle?.score?.strain;
 
   // --- Sleep for day D: non-nap sleep whose end is on day D in user TZ ---
   const validSleeps = sleeps.filter((s) => !s.nap && s.start && s.end);
