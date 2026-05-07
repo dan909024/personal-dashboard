@@ -440,6 +440,19 @@ export async function getDailyRollup(dateISO: string): Promise<DailyRollup> {
     }),
   ]);
 
+  // TEMP DIAGNOSTIC: log raw API responses so we can see what fields Whoop
+  // is returning vs what the mapping below is reading. Remove once the
+  // recovery/rhr/hrv blank-fields investigation closes.
+  console.warn(
+    `[whoop-sync] raw response: date=${dateISO} recoveries=${JSON.stringify(recoveries)}`
+  );
+  console.warn(
+    `[whoop-sync] raw response: date=${dateISO} cycles=${JSON.stringify(cycles)}`
+  );
+  console.warn(
+    `[whoop-sync] raw response: date=${dateISO} sleeps_count=${sleeps.length} sleep_score_states=${JSON.stringify(sleeps.map((s) => s.score_state))}`
+  );
+
   // --- Cycle for day D ---
   // Only consider SCORED cycles. PENDING/UNSCORABLE items have no
   // score yet (Whoop is still aggregating); writing them produces
