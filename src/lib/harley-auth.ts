@@ -33,8 +33,14 @@
  * recorded hash.
  */
 
-// TODO(harley-auth): replace with Harley's primary email address.
-export const HARLEY_EMAIL = "";
-
-// TODO(harley-auth): replace with the private tripwire channel chat_id (negative integer).
-export const TRIPWIRE_TELEGRAM_CHAT_ID = 0;
+// Bootstrap (test) values. Final state should fan-out to BOTH Dan's
+// chat and Harley's chat — that requires turning these constants into
+// arrays, which is its own follow-up PR. For now: single recipient,
+// using Dan's email + Dan's personal Telegram DM with the bot.
+//
+// Types are widened (`: string`, `: number`) rather than inferred so
+// the runtime guards in src/app/api/harley/login-request/route.ts
+// (`if (!HARLEY_EMAIL)`, `TRIPWIRE_TELEGRAM_CHAT_ID === 0`) don't get
+// flagged as tautologies once the literals are populated.
+export const HARLEY_EMAIL: string = "REDACTED";
+export const TRIPWIRE_TELEGRAM_CHAT_ID: number = 6503455232;
