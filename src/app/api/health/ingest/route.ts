@@ -52,26 +52,6 @@ function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
-function summarizeBody(b: Record<string, unknown>): string {
-  // Compact key-by-key summary: name + type + (length for strings/arrays).
-  // Used on validation-failure paths so we can see at a glance which fields
-  // arrived empty vs missing vs the wrong type, without leaking values.
-  const parts: string[] = [];
-  for (const k of Object.keys(b)) {
-    const v = b[k];
-    if (v === null) {
-      parts.push(`${k}:null`);
-    } else if (Array.isArray(v)) {
-      parts.push(`${k}:array(${v.length})`);
-    } else if (typeof v === "string") {
-      parts.push(`${k}:string(${v.length})`);
-    } else {
-      parts.push(`${k}:${typeof v}`);
-    }
-  }
-  return `keys=[${parts.join(", ")}]`;
-}
-
 function normalizeWorkouts(raw: unknown): AppleHealthWorkout[] {
   if (!Array.isArray(raw)) return [];
   const out: AppleHealthWorkout[] = [];
@@ -122,14 +102,10 @@ export async function POST(req: NextRequest) {
   const date = rawDate.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     console.warn("[health/ingest] 400 raw date payload:", JSON.stringify(rawDate));
-    console.warn("[health/ingest] 400 body diagnostic:", summarizeBody(b));
     return bad("date must be YYYY-MM-DD");
   }
   const source = String(b.source ?? "").trim();
-  if (!source) {
-    console.warn("[health/ingest] 400 body diagnostic:", summarizeBody(b));
-    return bad("source is required");
-  }
+  if (!source) return bad("source is required");
 
   const stepsRaw = asNumber(b.steps, 0) ?? 0;
   const steps = clamp(Math.round(stepsRaw), 0, STEPS_CAP);
