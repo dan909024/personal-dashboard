@@ -1,6 +1,6 @@
 import {
   getOpenTasks,
-  getPunishments,
+  getHarleyBalance,
   getLatestWhoopDaily,
   getHarleyMeter,
   isConfigured,
@@ -15,6 +15,7 @@ import {
   type DashboardAppleHealth,
   type DashboardWhoopWorkouts,
   type ScreenTimeRow,
+  type HarleyBalance,
 } from "@/lib/sheets";
 import { getDashboardWeakness } from "@/lib/weakness";
 import { WeaknessAltarTile } from "@/components/tiles/WeaknessAltarTile";
@@ -194,7 +195,7 @@ export default async function Dashboard({
   // Fetch in parallel; each function is internally cached.
   const [
     openTasks,
-    punishments,
+    harleyBalance,
     whoop,
     harley,
     whoopConnected,
@@ -206,7 +207,7 @@ export default async function Dashboard({
     weakness,
   ] = await Promise.all([
     configured ? getOpenTasks(3) : Promise.resolve([]),
-    configured ? getPunishments() : Promise.resolve([]),
+    configured ? getHarleyBalance() : Promise.resolve(null as HarleyBalance | null),
     configured ? getLatestWhoopDaily() : Promise.resolve(null),
     configured ? getHarleyMeter() : Promise.resolve(0),
     configured ? isWhoopConnected() : Promise.resolve(false),
@@ -225,7 +226,7 @@ export default async function Dashboard({
   ]);
 
   const phoneSummary = summarizeScreentime(screentime);
-  const owedThisWeek = punishments.reduce((sum, p) => sum + (p.paid ? 0 : p.amount), 0);
+  const owedHarley = harleyBalance?.owed ?? 0;
   const week = isoWeekNumber();
   const review = daysUntilSunday();
   const lastUpdated = fmtTime(new Date());
@@ -282,7 +283,7 @@ export default async function Dashboard({
             <p className="text-sm font-semibold tracking-widest text-white uppercase">
               WEEK {week} &middot; {review.label} &middot;{" "}
               <span className="text-red-400">
-                OWED THIS WEEK: ${configured ? owedThisWeek : 135}
+                OWED HARLEY: ${configured ? owedHarley : 135}
               </span>
             </p>
             <div className="flex items-center gap-3 shrink-0">
@@ -392,38 +393,29 @@ export default async function Dashboard({
             <NotTrackedYet />
           </Tile>
 
-          <Tile title="PUNISHMENTS THIS WEEK">
-            {configured && punishments.length > 0 ? (
-              <>
-                <p className="text-3xl font-bold text-red-400 mb-2">
-                  ${owedThisWeek}
-                </p>
-                <div className="space-y-1 text-xs text-zinc-400">
-                  {punishments.slice(0, 3).map((p, i) => (
-                    <div key={i} className="flex justify-between">
-                      <span className="truncate pr-2">{p.reason || "—"}</span>
-                      <span className="text-red-400 shrink-0">${p.amount}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
+          <Tile title="OWED HARLEY">
+            {configured && harleyBalance ? (
+              <HarleyBalanceTile balance={harleyBalance} />
             ) : configured ? (
               <NoData />
             ) : (
               <>
                 <p className="text-3xl font-bold text-red-400 mb-2">$135</p>
+                <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">
+                  $1,135 fines − $1,000 paid
+                </p>
                 <div className="space-y-1 text-xs text-zinc-400">
                   <div className="flex justify-between">
-                    <span>Mon late wake</span>
-                    <span className="text-red-400">$10</span>
+                    <span>Monthly fee — May 2026</span>
+                    <span className="text-red-400">+$1,000</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Wed phone</span>
-                    <span className="text-red-400">$45</span>
+                    <span className="text-red-400">+$45</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Sat writing</span>
-                    <span className="text-red-400">$30</span>
+                    <span>USDT payment</span>
+                    <span className="text-green-400">−$1,000</span>
                   </div>
                 </div>
               </>
@@ -541,6 +533,44 @@ function ConnectWhoopCta() {
     >
       Connect Whoop →
     </a>
+  );
+}
+
+function HarleyBalanceTile({ balance }: { balance: HarleyBalance }) {
+  const owed = balance.owed;
+  const owedColor = owed > 0 ? "text-red-400" : owed < 0 ? "text-green-400" : "text-white";
+  const owedLabel = owed < 0 ? `Overpaid $${Math.abs(owed).toLocaleString("en-AU")}` : `$${owed.toLocaleString("en-AU")}`;
+  return (
+    <>
+      <p className={`text-3xl font-bold mb-2 ${owedColor}`}>{owedLabel}</p>
+      <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">
+        ${balance.finesTotal.toLocaleString("en-AU")} fines − $
+        {balance.paidTotal.toLocaleString("en-AU")} paid
+      </p>
+      {balance.recentActivity.length > 0 ? (
+        <div className="space-y-1 text-xs text-zinc-400">
+          {balance.recentActivity.map((a, i) => (
+            <div key={i} className="flex justify-between gap-2">
+              <span className="truncate">
+                {a.kind === "fine"
+                  ? a.reason || "Fine"
+                  : `${a.currency || "USDT"} payment`}
+              </span>
+              <span
+                className={`shrink-0 ${
+                  a.kind === "fine" ? "text-red-400" : "text-green-400"
+                }`}
+              >
+                {a.kind === "fine" ? "+" : "−"}$
+                {a.amount.toLocaleString("en-AU")}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-zinc-500 italic">no activity yet</p>
+      )}
+    </>
   );
 }
 

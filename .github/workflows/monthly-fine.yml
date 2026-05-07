@@ -1,0 +1,39 @@
+# Monthly +$1000 fine appender. Fires at 00:00 Sydney time on the
+# 1st of each month — there's no single UTC cron that always lands
+# on the 1st of the local month across DST boundaries, so we run at
+# 13:00 UTC on the 1st (00:00 AEDT summer / 23:00 AEST same-day
+# winter — close enough; idempotency in the endpoint guarantees one
+# row per month regardless of overlap).
+#
+# Endpoint is idempotent on the "Monthly fee — <Month> <Year>" Reason
+# string, so double-firings or manual workflow_dispatch are safe.
+
+name: Monthly fine (1st of month)
+
+on:
+  schedule:
+    - cron: '0 13 1 * *'
+  workflow_dispatch:
+
+jobs:
+  fire:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit monthly-fine endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DASHBOARD_BASE_URL: ${{ secrets.DASHBOARD_BASE_URL }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$DASHBOARD_BASE_URL/api/cron/monthly-fine")
+
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "Status: $status"
+          echo "Body: $body"
+
+          if [ "$status" -ne 200 ]; then
+            exit 1
+          fi
