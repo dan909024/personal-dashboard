@@ -17,21 +17,27 @@ export type EmailResult =
   | { sent: true; id: string }
   | { sent: false; reason: string };
 
-export async function sendHarleyEmail(
+/**
+ * Generic Resend send. Used for auth-related deliveries where the
+ * destination address comes from a source-hardcoded constant
+ * (HARLEY_EMAIL in src/lib/harley-auth.ts) rather than the env var
+ * — so a leaked Vercel env var alone can't redirect login links.
+ */
+export async function sendEmail(
+  to: string,
   subject: string,
   html: string,
   text: string
 ): Promise<EmailResult> {
   const apiKey = process.env.RESEND_API_KEY || "";
-  const to = process.env.HARLEY_EMAIL || "";
   const from = process.env.RESEND_FROM || FROM_DEFAULT;
   if (!apiKey) {
     console.warn("[email] RESEND_API_KEY missing — skipping send.");
     return { sent: false, reason: "RESEND_API_KEY missing" };
   }
   if (!to) {
-    console.warn("[email] HARLEY_EMAIL missing — skipping send.");
-    return { sent: false, reason: "HARLEY_EMAIL missing" };
+    console.warn("[email] sendEmail called with empty `to` — skipping.");
+    return { sent: false, reason: "to missing" };
   }
   try {
     const res = await fetch(RESEND_ENDPOINT, {
@@ -60,6 +66,25 @@ export async function sendHarleyEmail(
     console.error("[email] send failed:", msg);
     return { sent: false, reason: msg };
   }
+}
+
+/**
+ * Env-based wrapper for non-auth notifications (heartbeat alerts,
+ * orgasm/edge logs, weekly summary). Reads HARLEY_EMAIL from env.
+ * For auth-related sends, use sendEmail() directly with the
+ * source-hardcoded constant.
+ */
+export async function sendHarleyEmail(
+  subject: string,
+  html: string,
+  text: string
+): Promise<EmailResult> {
+  const to = process.env.HARLEY_EMAIL || "";
+  if (!to) {
+    console.warn("[email] HARLEY_EMAIL missing — skipping send.");
+    return { sent: false, reason: "HARLEY_EMAIL missing" };
+  }
+  return sendEmail(to, subject, html, text);
 }
 
 /** Helper for status-style alerts. Returns { html, text } you pass in. */

@@ -1,10 +1,12 @@
 /**
  * POST /api/telegram/webhook
  *
- * Single-purpose webhook for now: when anyone sends `/start` to the bot
- * (DM, group, or via channel_post), reply with their chat_id. This is
- * the bootstrap step that surfaces HARLEY_CHAT_ID without us hardcoding
- * an integer ahead of time.
+ * Single-purpose webhook: only handles `/start`. Replies with
+ * `chat_id: <id>` so the TRIPWIRE_TELEGRAM_CHAT_ID constant in
+ * src/lib/harley-auth.ts can be bootstrapped once. Everything else
+ * (any other text, stickers, edits, group events) is silently ignored.
+ * The bot is a one-way audit channel for magic-link sends — it does
+ * not accept commands.
  *
  * Set the webhook with:
  *   curl -F "url=https://<prod>/api/telegram/webhook" \
@@ -67,7 +69,7 @@ export async function POST(req: NextRequest) {
   if (text === "/start" || text.startsWith("/start ") || text.startsWith("/start@")) {
     const botToken = process.env.TELEGRAM_BOT_TOKEN || "";
     if (botToken) {
-      await reply(botToken, chatId, `Your Telegram chat_id is ${chatId}`);
+      await reply(botToken, chatId, `chat_id: ${chatId}`);
     } else {
       console.warn("[telegram webhook] TELEGRAM_BOT_TOKEN missing — skipping reply.");
     }

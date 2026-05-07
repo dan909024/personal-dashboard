@@ -45,7 +45,7 @@ export function LoginButton() {
             onClick={onClick}
             className="px-5 py-3 text-xs font-semibold uppercase tracking-widest border border-purple-500 bg-purple-900/60 text-purple-100 hover:border-purple-300 hover:bg-purple-800/70 transition-colors"
           >
-            Send access link to Telegram
+            Send access link
           </button>
         )}
 
@@ -55,7 +55,7 @@ export function LoginButton() {
 
         {state.kind === "sent" && (
           <p className="text-sm text-emerald-300">
-            Sent ✓ Check Telegram for the access link. It expires in 15 minutes.
+            Sent ✓ Check your email for the access link. It expires in 15 minutes.
           </p>
         )}
 
