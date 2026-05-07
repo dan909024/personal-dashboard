@@ -64,9 +64,13 @@ export async function POST(req: NextRequest) {
   if (!isConfigured()) {
     return NextResponse.json({ error: "sheets not configured" }, { status: 500 });
   }
-  if (!HARLEY_EMAIL) {
+  // At least one of the two channels must be bootstrapped. During dev
+  // we run Telegram-only with HARLEY_EMAIL = ""; the email send is
+  // skipped further down. If both are unbootstrapped there's no way
+  // for anyone to receive a magic link, so return 503.
+  if (!HARLEY_EMAIL && TRIPWIRE_TELEGRAM_CHAT_ID === 0) {
     return NextResponse.json(
-      { error: "HARLEY_EMAIL not bootstrapped in src/lib/harley-auth.ts" },
+      { error: "auth identities not bootstrapped (set HARLEY_EMAIL and/or TRIPWIRE_TELEGRAM_CHAT_ID in src/lib/harley-auth.ts)" },
       { status: 503 }
     );
   }
@@ -101,13 +105,22 @@ export async function POST(req: NextRequest) {
   const html = `<p>Access link requested at ${isoTime} from IP ${ip}.</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>Link expires in 15 minutes. One-time use.</p>`;
   const tripwireText = `Access link requested at ${isoTime} from IP ${ip}: ${verifyUrl}`;
 
-  // PRIMARY: email via Resend.
-  const emailRes = await sendEmail(HARLEY_EMAIL, subject, html, text);
-  await appendMagicLinkAudit(
-    ip,
-    emailRes.sent ? "sent_email" : "send_failed_email",
-    emailRes.sent ? "" : emailRes.reason
-  );
+  // PRIMARY: email via Resend. Skipped when HARLEY_EMAIL is empty
+  // (Telegram-only dev mode); audit row records the skip so the trail
+  // is unambiguous.
+  let emailSent = false;
+  if (HARLEY_EMAIL) {
+    const emailRes = await sendEmail(HARLEY_EMAIL, subject, html, text);
+    emailSent = emailRes.sent;
+    await appendMagicLinkAudit(
+      ip,
+      emailRes.sent ? "sent_email" : "send_failed_email",
+      emailRes.sent ? "" : emailRes.reason
+    );
+  } else {
+    console.warn("[login-request] HARLEY_EMAIL empty — skipping email send (Telegram-only mode)");
+    await appendMagicLinkAudit(ip, "send_skipped_email", "HARLEY_EMAIL not bootstrapped");
+  }
 
   // PARALLEL: Telegram tripwire. Failures are logged but don't block
   // delivery if email succeeded.
@@ -128,7 +141,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Tolerant: at least one channel must have delivered.
-  if (!emailRes.sent && !tripwireOk) {
+  if (!emailSent && !tripwireOk) {
     return NextResponse.json({ error: "all sends failed" }, { status: 502 });
   }
   return NextResponse.json({ ok: true });

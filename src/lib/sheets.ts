@@ -113,7 +113,7 @@ export const TAB_SCHEMAS = {
   "Daily Check-in": ["Date", "Arousal (1-10)", "Note"],
   Settings: ["Setting", "Value", "Last Updated", "Updated By"],
   Denial: ["Key", "Value"],
-  "Magic Links": ["Token", "Created at", "Expires at", "Used at", "IP"],
+  "Magic Links": ["Token", "Created at", "Expires at", "Used at", "IP", "Note"],
   "Magic Link Audit": ["Timestamp", "IP", "Action", "Detail"],
 } as const;
 
@@ -2303,7 +2303,7 @@ export async function markMagicLinkUsed(token: string): Promise<void> {
   const id = sheetId();
   const res = await client.spreadsheets.values.get({
     spreadsheetId: id,
-    range: "Magic Links!A1:E",
+    range: "Magic Links!A1:F",
     valueRenderOption: "UNFORMATTED_VALUE",
   });
   const rows = (res.data.values || []) as (string | number)[][];
@@ -2319,6 +2319,56 @@ export async function markMagicLinkUsed(token: string): Promise<void> {
     });
     return;
   }
+}
+
+/**
+ * One-off audit helper: for every Magic Links row whose Created at
+ * timestamp falls within [startMs, endMs] AND has neither a Used at
+ * value nor a Note, set Used at = now and Note = the supplied label.
+ *
+ * The data row is preserved (deletion would lose the audit trail).
+ * The note column makes it visually obvious that the row was never
+ * legitimately consumed by the original recipient.
+ *
+ * Returns the count of rows touched.
+ */
+export async function purgeMagicLinksInWindow(opts: {
+  startMs: number;
+  endMs: number;
+  note: string;
+}): Promise<{ matched: number; updated: number }> {
+  const client = sheetsClient();
+  const id = sheetId();
+  const res = await client.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: "Magic Links!A1:F",
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
+  const rows = (res.data.values || []) as (string | number)[][];
+  const now = new Date().toISOString();
+  let matched = 0;
+  let updated = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const createdAt = String(r[1] ?? "");
+    if (!createdAt) continue;
+    const ts = Date.parse(createdAt);
+    if (!Number.isFinite(ts)) continue;
+    if (ts < opts.startMs || ts > opts.endMs) continue;
+    matched++;
+    const usedAt = r[3] ? String(r[3]) : "";
+    const existingNote = r[5] ? String(r[5]) : "";
+    if (usedAt || existingNote) continue; // already accounted for
+    const sheetRow = i + 1;
+    await client.spreadsheets.values.update({
+      spreadsheetId: id,
+      range: `Magic Links!D${sheetRow}:F${sheetRow}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[now, String(r[4] ?? ""), opts.note]] },
+    });
+    updated++;
+  }
+  return { matched, updated };
 }
 
 export async function appendMagicLinkAudit(
