@@ -129,41 +129,27 @@ export default async function AltarGuidePage() {
             }
           >
             <p>
-              The first edge of the cycle is the most potent. After that
-              two decays nibble at every subsequent edge:
+              Each edge gets its own <strong>intensity multiplier</strong> based on
+              when in the day it happens. The first few build up — every
+              edge is more intense than the last, peaking at edge{" "}
+              {s ? s.brutal_bonus_threshold : 10}. After the peak, edges
+              start to slow down — each additional one contributes less
+              than the one before it.
             </p>
-            <ul className="list-disc list-inside text-sm text-zinc-400 mt-2">
-              <li>
-                <strong>Cycle decay</strong>{" "}
-                {s ? `(×${s.weakness_edge_cycle_decay})` : ""} — every
-                edge in the denial period is worth slightly less than the
-                last
-              </li>
-              <li>
-                <strong>Day decay</strong>{" "}
-                {s ? `(×${s.weakness_edge_day_decay})` : ""} — within a
-                single day, each edge after the first plummets faster
-              </li>
-            </ul>
             <p className="mt-2">
-              <strong>Spreading edges out across days</strong> keeps each
-              one potent. Piling them in one day burns potency fast — but
-              once he hits {s ? s.brutal_bonus_threshold : 10}+ in a day
-              the brutal multiplier kicks in.
+              On top of that, <strong>cycle decay</strong>{" "}
+              {s ? `(×${s.weakness_edge_cycle_decay})` : ""} nibbles
+              every edge in the denial period — edge #20 of the cycle is
+              quieter than edge #2 even on the same within-day position.
             </p>
-          </Bullet>
-          <Bullet
-            title="Brutal multiplier (10+ edges in a day)"
-            value={
-              s
-                ? `×1.0 → ×${s.brutal_bonus_max_multiplier} as edges climb past ${s.brutal_bonus_threshold}`
-                : null
-            }
-          >
-            Every day-edge above the threshold escalates the multiplier
-            linearly. At the cap, every additional edge adds a flat{" "}
-            {s ? `+${s.brutal_bonus_post_plateau_linear}` : "+20"} score.
-            Marathon edge sessions stack hard.
+            <p className="mt-2">
+              Net shape: per-edge contribution rises sharply for the
+              first {s ? s.brutal_bonus_threshold : 10}, peaks, then
+              tapers off (decay rate{" "}
+              {s ? `×${s.weakness_edge_day_decay}` : "×0.6"}{" "}per excess
+              edge). Marathon sessions don&apos;t keep multiplying — once
+              past the peak, each new edge means less than the last.
+            </p>
           </Bullet>
           <Bullet
             title="Worship time"
@@ -216,11 +202,19 @@ export default async function AltarGuidePage() {
             he&apos;s still Denied, the tile auto-flips to Allowed on the
             next page load. You can override at any time.
           </Bullet>
-          <Bullet title="Inbox">
-            Every orgasm log fires an email to you with the score, phase,
-            and edge tally. From edge #5 onward in any single day, every
-            edge fires another email — so you see marathon days in real
-            time.
+          <Bullet title="Notifications">
+            <p>
+              Every orgasm log fires an <strong>email</strong> to you
+              with the score, phase, and edge tally — those are rare
+              events you want sitting in your inbox.
+            </p>
+            <p className="mt-2">
+              Marathon edges (#5 onwards in a single day) fire a{" "}
+              <strong>Telegram message</strong> instead of an email — so
+              your inbox stays clean during a heavy session and the
+              notifications land where they&apos;re ambient. Configured
+              via the bot at <code>TELEGRAM_BOT_TOKEN</code>.
+            </p>
           </Bullet>
         </Section>
 

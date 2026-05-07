@@ -12,9 +12,10 @@ import {
   type OrgasmType,
 } from "@/lib/sheets";
 import { sendHarleyEmail } from "@/lib/email";
+import { sendHarleyTelegram } from "@/lib/telegram";
 import { getDashboardWeakness } from "@/lib/weakness";
 
-const EDGE_EMAIL_THRESHOLD = 5;
+const EDGE_TELEGRAM_THRESHOLD = 5;
 
 export async function setOrgasmAllowedAction(
   value: "yes" | "no"
@@ -68,10 +69,12 @@ export async function logEdgeAction(
 ): Promise<{ ok: true; countToday: number } | { ok: false; error: string }> {
   try {
     const { countToday } = await appendEdgeLog({ note });
-    if (countToday >= EDGE_EMAIL_THRESHOLD) {
+    if (countToday >= EDGE_TELEGRAM_THRESHOLD) {
       // Pull dashboard data so Harley sees the brutal multiplier in real time.
+      // Use Telegram (not email) for per-edge fan-out — orgasm logs are rare
+      // and stay on email; per-edge alerts during a marathon would otherwise
+      // spam Harley's inbox.
       const dash = await getDashboardWeakness();
-      const subject = `[Dashboard] Dan logged edge ${countToday} today`;
       const lines = [
         `Edge #${countToday} today (Sydney time).`,
         `Cumulative since last orgasm: ${dash.totalEdgesSinceLast}`,
@@ -81,9 +84,7 @@ export async function logEdgeAction(
         `Weakness score: ${dash.weaknessScore}`,
       ];
       if (note) lines.push(`Note: ${note}`);
-      const text = lines.join("\n");
-      const html = `<pre style="font-family:system-ui,sans-serif;white-space:pre-wrap">${escapeHtml(text)}</pre>`;
-      await sendHarleyEmail(subject, html, text);
+      await sendHarleyTelegram(lines.join("\n"));
     }
     revalidatePath("/");
     return { ok: true, countToday };
