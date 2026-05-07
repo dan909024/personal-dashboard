@@ -2,17 +2,26 @@
  * POST /api/harley/login-request
  *
  * Issues a one-time magic link, persists it in the "Magic Links" tab,
- * and sends the URL via Telegram bot DM to BOTH HARLEY_CHAT_ID and
- * TRIPWIRE_CHAT_ID. Tripwire fan-out is what makes this tamper-evident —
- * any login attempt is visible to a separate audit recipient.
+ * and delivers the URL via two channels in parallel:
  *
- * Rate limit: 3 per hour, 10 per day, per IP, persisted in
- * "Magic Link Audit". Each request, send, and rate-limit hit logs a
- * forensic row.
+ *   1. PRIMARY — Resend email to HARLEY_EMAIL (source-hardcoded in
+ *      src/lib/harley-auth.ts).
+ *   2. TRIPWIRE — Telegram bot DM to TRIPWIRE_TELEGRAM_CHAT_ID, a
+ *      private channel Harley controls. One-way audit fan-out: the
+ *      bot has no other purpose. Anything in that channel that Harley
+ *      didn't request is the breach signal.
+ *
+ * Tolerant of partial failure: as long as ONE channel delivered, the
+ * request returns 200. Both channels failing returns 502. Every step
+ * (request, send_*, send_failed_*, rate_limit_hit) appends a forensic
+ * row to "Magic Link Audit".
+ *
+ * Rate limit: 3 per hour, 10 per day, per IP.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
-import { HARLEY_CHAT_ID, TRIPWIRE_CHAT_ID } from "@/lib/harley-auth";
+import { HARLEY_EMAIL, TRIPWIRE_TELEGRAM_CHAT_ID } from "@/lib/harley-auth";
+import { sendEmail } from "@/lib/email";
 import {
   appendMagicLink,
   appendMagicLinkAudit,
@@ -32,11 +41,11 @@ function clientIp(req: NextRequest): string {
   return xff.split(",")[0].trim() || "unknown";
 }
 
-async function sendTelegram(
+async function postTelegramTripwire(
   botToken: string,
   chatId: number,
   text: string
-): Promise<{ ok: boolean; status: number }> {
+): Promise<{ ok: boolean; status: number; reason?: string }> {
   try {
     const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: "POST",
@@ -45,8 +54,9 @@ async function sendTelegram(
     });
     return { ok: res.ok, status: res.status };
   } catch (e) {
-    console.error("[login-request] telegram send threw:", (e as Error).message);
-    return { ok: false, status: 0 };
+    const reason = (e as Error).message;
+    console.error("[login-request] tripwire fetch threw:", reason);
+    return { ok: false, status: 0, reason };
   }
 }
 
@@ -54,9 +64,17 @@ export async function POST(req: NextRequest) {
   if (!isConfigured()) {
     return NextResponse.json({ error: "sheets not configured" }, { status: 500 });
   }
+  if (!HARLEY_EMAIL) {
+    return NextResponse.json(
+      { error: "HARLEY_EMAIL not bootstrapped in src/lib/harley-auth.ts" },
+      { status: 503 }
+    );
+  }
+
   const ip = clientIp(req);
   const now = Date.now();
 
+  // Rate limit
   const hourCount = await countMagicLinkRequests(ip, now - 3_600_000);
   if (hourCount >= HOUR_LIMIT) {
     await appendMagicLinkAudit(ip, "rate_limit_hit", "hour");
@@ -68,20 +86,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "rate limited" }, { status: 429 });
   }
 
-  const botToken = process.env.TELEGRAM_BOT_TOKEN || "";
-  if (!botToken) {
-    await appendMagicLinkAudit(ip, "send_skipped", "TELEGRAM_BOT_TOKEN missing");
-    return NextResponse.json({ error: "telegram not configured" }, { status: 500 });
-  }
-  if (HARLEY_CHAT_ID === 0 || TRIPWIRE_CHAT_ID === 0) {
-    await appendMagicLinkAudit(ip, "send_skipped", "chat_ids not bootstrapped");
-    return NextResponse.json(
-      { error: "auth identities not bootstrapped" },
-      { status: 503 }
-    );
-  }
-
-  const token = randomBytes(16).toString("hex"); // 32 hex chars
+  // Generate + persist token
+  const token = randomBytes(16).toString("hex");
   const expiresAt = new Date(now + TTL_MS).toISOString();
   await appendMagicLink(token, expiresAt, ip);
   await appendMagicLinkAudit(ip, "request", "");
@@ -90,25 +96,40 @@ export async function POST(req: NextRequest) {
   const host = req.headers.get("host") || "";
   const verifyUrl = `${proto}://${host}/harley/verify?t=${token}`;
   const isoTime = new Date(now).toISOString();
-  const text = `Access link requested at ${isoTime} from IP ${ip}: ${verifyUrl}`;
+  const subject = "Goddess control panel — access link";
+  const text = `Access link requested at ${isoTime} from IP ${ip}.\n\n${verifyUrl}\n\nLink expires in 15 minutes. One-time use.`;
+  const html = `<p>Access link requested at ${isoTime} from IP ${ip}.</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>Link expires in 15 minutes. One-time use.</p>`;
+  const tripwireText = `Access link requested at ${isoTime} from IP ${ip}: ${verifyUrl}`;
 
-  const [harleyRes, tripwireRes] = await Promise.all([
-    sendTelegram(botToken, HARLEY_CHAT_ID, text),
-    sendTelegram(botToken, TRIPWIRE_CHAT_ID, text),
-  ]);
+  // PRIMARY: email via Resend.
+  const emailRes = await sendEmail(HARLEY_EMAIL, subject, html, text);
   await appendMagicLinkAudit(
     ip,
-    harleyRes.ok ? "sent_harley" : "send_failed_harley",
-    harleyRes.ok ? "" : `status=${harleyRes.status}`
-  );
-  await appendMagicLinkAudit(
-    ip,
-    tripwireRes.ok ? "sent_tripwire" : "send_failed_tripwire",
-    tripwireRes.ok ? "" : `status=${tripwireRes.status}`
+    emailRes.sent ? "sent_email" : "send_failed_email",
+    emailRes.sent ? "" : emailRes.reason
   );
 
-  if (!harleyRes.ok && !tripwireRes.ok) {
-    return NextResponse.json({ error: "telegram send failed" }, { status: 502 });
+  // PARALLEL: Telegram tripwire. Failures are logged but don't block
+  // delivery if email succeeded.
+  const botToken = process.env.TELEGRAM_BOT_TOKEN || "";
+  let tripwireOk = false;
+  if (!botToken) {
+    await appendMagicLinkAudit(ip, "send_failed_tripwire", "TELEGRAM_BOT_TOKEN missing");
+  } else if (TRIPWIRE_TELEGRAM_CHAT_ID === 0) {
+    await appendMagicLinkAudit(ip, "send_failed_tripwire", "chat_id not bootstrapped");
+  } else {
+    const tg = await postTelegramTripwire(botToken, TRIPWIRE_TELEGRAM_CHAT_ID, tripwireText);
+    tripwireOk = tg.ok;
+    await appendMagicLinkAudit(
+      ip,
+      tg.ok ? "sent_tripwire" : "send_failed_tripwire",
+      tg.ok ? "" : tg.reason ?? `status=${tg.status}`
+    );
+  }
+
+  // Tolerant: at least one channel must have delivered.
+  if (!emailRes.sent && !tripwireOk) {
+    return NextResponse.json({ error: "all sends failed" }, { status: 502 });
   }
   return NextResponse.json({ ok: true });
 }
