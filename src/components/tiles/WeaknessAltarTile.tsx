@@ -7,6 +7,7 @@ import {
   logDailyCheckInAction,
   logEdgeAction,
   logOrgasmAction,
+  setOrgasmAllowedAction,
 } from "@/app/actions/weakness";
 import type { WeaknessDashboardData } from "@/lib/weakness";
 import DenialClock from "@/components/DenialClock";
@@ -68,6 +69,14 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
   const onEdge = () => {
     runAction("+1 edge", () => logEdgeAction());
   };
+  const onTogglePill = () => {
+    const next = data.orgasmAllowed === "yes" ? "no" : "yes";
+    const verb = next === "yes" ? "Allow" : "Deny";
+    if (!confirm(`${verb} now?`)) return;
+    runAction(verb === "Allow" ? "Allowed" : "Denied", () =>
+      setOrgasmAllowedAction(next)
+    );
+  };
 
   const score = data.weaknessScore;
   const phase = data.currentPhase;
@@ -90,19 +99,27 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
           </p>
           <p className="text-[11px] text-zinc-400 italic mt-0.5">{ALTAR_TAGLINE}</p>
         </div>
-        <span
-          className={`text-[10px] uppercase tracking-widest flex items-center gap-1.5 shrink-0 ${
-            data.orgasmAllowed === "yes" ? "text-emerald-300" : "text-rose-300"
-          }`}
-        >
-          <span
-            className={`w-2 h-2 rounded-full inline-block ${
-              data.orgasmAllowed === "yes" ? "bg-emerald-400" : "bg-rose-400"
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={onTogglePill}
+            disabled={isPending}
+            title="Click to toggle Allowed / Denied"
+            className={`text-[10px] uppercase tracking-widest flex items-center gap-1.5 px-2 py-0.5 border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              data.orgasmAllowed === "yes"
+                ? "text-emerald-300 border-emerald-700 hover:border-emerald-400 hover:bg-emerald-950/40"
+                : "text-rose-300 border-rose-700 hover:border-rose-400 hover:bg-rose-950/40"
             }`}
-          />
-          {data.orgasmAllowed === "yes" ? "Allowed" : "Denied"}
+          >
+            <span
+              className={`w-2 h-2 rounded-full inline-block ${
+                data.orgasmAllowed === "yes" ? "bg-emerald-400" : "bg-rose-400"
+              }`}
+            />
+            {data.orgasmAllowed === "yes" ? "Allowed" : "Denied"}
+          </button>
           {data.orgasmAllowed === "no" && <DenialClock />}
-        </span>
+        </div>
       </div>
 
       {/* Phase + flavor */}
