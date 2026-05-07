@@ -35,7 +35,7 @@ import {
   type Punishment,
   type AmexTransactionRow,
 } from "@/lib/sheets";
-import { sendHarleyEmail } from "@/lib/email";
+import { sendHarleyTelegram } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
   });
 
   const weekEnding = todayInSydney();
-  const { html, text, subject } = renderWeeklySummary({
+  const { text } = renderWeeklySummary({
     weekEnding,
     whoop,
     amex,
@@ -90,17 +90,24 @@ export async function GET(req: NextRequest) {
     punishments,
   });
 
-  const sendResult = await sendHarleyEmail(subject, html, text);
+  // Telegram message limit is 4096 chars; truncate with a note rather
+  // than fail outright if the digest balloons.
+  const MAX_LEN = 4000;
+  const sendText =
+    text.length > MAX_LEN
+      ? text.slice(0, MAX_LEN) + "\n\n…(truncated for Telegram limit)"
+      : text;
+  const sendResult = await sendHarleyTelegram(sendText);
 
-  // Non-2xx if email failed, so the GitHub Action correctly fails and
-  // skips the Healthchecks.io ping. Body still includes the snapshot
-  // for debugging from the workflow log.
+  // Non-2xx if Telegram failed, so the GitHub Action correctly fails
+  // and skips the Healthchecks.io ping. Body still includes the
+  // snapshot for debugging from the workflow log.
   if (!sendResult.sent) {
     return NextResponse.json(
       {
         ok: false,
         weekEnding,
-        email: sendResult,
+        telegram: sendResult,
         counts: counts(whoop, amex, recentEdits, punishments),
       },
       { status: 502 }
@@ -110,7 +117,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     weekEnding,
-    email: sendResult,
+    telegram: sendResult,
     counts: counts(whoop, amex, recentEdits, punishments),
   });
 }

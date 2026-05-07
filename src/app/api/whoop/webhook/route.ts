@@ -26,7 +26,7 @@ import {
   getLatestWhoopDaily,
 } from "@/lib/sheets";
 import { getSleepById } from "@/lib/whoop";
-import { sendHarleyEmail } from "@/lib/email";
+import { sendHarleyTelegram } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -150,30 +150,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const subject = `Sleep edit detected (${sydneyDate})`;
-    const summaryRows = changes
-      .map(
-        (c) =>
-          `<tr><td style="padding:4px 12px 4px 0"><b>${c.field}</b></td><td>${escape(c.oldVal)} → ${escape(c.newVal)}</td></tr>`
-      )
-      .join("");
-    const html = `
-      <div style="font-family:system-ui,-apple-system,sans-serif;color:#111;line-height:1.5">
-        <h2 style="margin-bottom:0.5em">Sleep edit detected</h2>
-        <p>Whoop pushed a <code>sleep.updated</code> event for sleep <code>${escape(sleepId)}</code> on <b>${escape(sydneyDate)}</b>.</p>
-        <table style="border-collapse:collapse">${summaryRows}</table>
-        <p style="color:#888;font-size:12px;margin-top:1em">
-          Source: ${escape("manual")} (any sleep.updated with a diff is treated as user-edited).
-          Detected at ${escape(detectedAt)}.
-        </p>
-      </div>`;
     const text =
       `Sleep edit detected for ${sydneyDate} (sleep ${sleepId}):\n` +
       changes.map((c) => `  - ${c.field}: ${c.oldVal} → ${c.newVal}`).join("\n") +
       `\nDetected at ${detectedAt}.`;
 
-    sendHarleyEmail(subject, html, text).catch((e) =>
-      console.error("[whoop-webhook] email send threw:", (e as Error).message)
+    sendHarleyTelegram(text).catch((e) =>
+      console.error("[whoop-webhook] telegram send threw:", (e as Error).message)
     );
 
     return NextResponse.json({
@@ -253,10 +236,3 @@ function fmtClock(d: Date): string {
   });
 }
 
-function escape(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
