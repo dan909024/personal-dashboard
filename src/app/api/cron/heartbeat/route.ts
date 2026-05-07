@@ -23,7 +23,7 @@ import {
   getSystemHealthHistory,
   getRecentSleepEdits,
 } from "@/lib/sheets";
-import { sendHarleyEmail, renderAlertBody } from "@/lib/email";
+import { sendHarleyTelegram } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -119,20 +119,17 @@ export async function GET(req: NextRequest) {
   if (!heartbeatOk && sheetsOk) {
     const lastAlertMs = await lastAlertTimestamp().catch(() => 0);
     if (now.getTime() - lastAlertMs > ALERT_DEDUPE_MS) {
-      const body = renderAlertBody({
-        timestamp: nowIso,
-        heartbeat_ok: heartbeatOk,
-        whoop_ok: whoopOk,
-        last_whoop_sync: lastWhoopSync || "(none)",
-        whoop_age_hours: lastWhoopMs !== null ? Math.round(lastWhoopMs / 3600000) : "n/a",
-        sleep_edits_24h: recentEditsCount,
-        failures: failureReasons.join(", "),
-      });
-      const result = await sendHarleyEmail(
+      const text = [
         `Dashboard alert: ${failureReasons[0]}`,
-        body.html,
-        body.text
-      );
+        `Time: ${nowIso}`,
+        `Heartbeat OK: ${heartbeatOk}`,
+        `Whoop OK: ${whoopOk}`,
+        `Last Whoop sync: ${lastWhoopSync || "(none)"}`,
+        `Whoop age (h): ${lastWhoopMs !== null ? Math.round(lastWhoopMs / 3600000) : "n/a"}`,
+        `Sleep edits 24h: ${recentEditsCount}`,
+        `Failures: ${failureReasons.join(", ")}`,
+      ].join("\n");
+      const result = await sendHarleyTelegram(text);
       alertSent = result.sent;
       if (!result.sent) alertReason = result.reason;
       // Mark the alert in a follow-up System Health row so dedupe

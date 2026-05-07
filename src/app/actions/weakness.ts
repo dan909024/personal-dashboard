@@ -11,7 +11,6 @@ import {
   setSetting,
   type OrgasmType,
 } from "@/lib/sheets";
-import { sendHarleyEmail } from "@/lib/email";
 import { sendHarleyTelegram } from "@/lib/telegram";
 import { getDashboardWeakness } from "@/lib/weakness";
 
@@ -39,23 +38,20 @@ export async function logOrgasmAction(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const { date, daysSincePrevious } = await appendOrgasmLog({ type, note });
-    // Pull the freshest dashboard state so the email reflects post-write reality.
+    // Pull the freshest dashboard state so the message reflects post-write reality.
     const dash = await getDashboardWeakness();
-    const subject = `[Dashboard] Dan reported: ${type}`;
     const lines = [
+      `Dan reported: ${type}`,
       `Time: ${date} ${new Date().toLocaleTimeString("en-AU", { hour12: false, timeZone: "Australia/Sydney" })} Sydney`,
-      `Type: ${type}`,
       `Days since previous: ${daysSincePrevious === null ? "(first)" : daysSincePrevious}`,
       `Days denied: ${dash.daysDenied}`,
       `Edges since last: ${dash.totalEdgesSinceLast}`,
       `Phase: ${dash.currentPhase.name}`,
-      `Flavor: ${dash.currentPhase.flavorText}`,
+      `"${dash.currentPhase.flavorText}"`,
       `Weakness score: ${dash.weaknessScore}`,
     ];
     if (note) lines.push(`Note: ${note}`);
-    const text = lines.join("\n");
-    const html = `<pre style="font-family:system-ui,sans-serif;white-space:pre-wrap">${escapeHtml(text)}</pre>`;
-    await sendHarleyEmail(subject, html, text);
+    await sendHarleyTelegram(lines.join("\n"));
     revalidatePath("/");
     return { ok: true };
   } catch (e) {
@@ -149,10 +145,3 @@ export async function logSelfHelpAction(
   }
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
