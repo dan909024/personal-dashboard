@@ -1,8 +1,16 @@
 # Apple Health → Dashboard ingest
 
-The dashboard's GYM and ROUTINE tiles read step counts and workouts
-from a Google Sheet tab populated by an iOS Shortcut. This is a
-one-time setup on your iPhone.
+The dashboard's ROUTINE tile reads step counts from a Google Sheet
+tab populated by an iOS Shortcut. This is a one-time setup on your
+iPhone.
+
+> **Workouts no longer come from this Shortcut.** The GYM tile is
+> driven by the Whoop API server-side (daily whoop-sync cron) — Whoop
+> reports strain reliably and Ladder doesn't expose workouts to Apple
+> Health. You can still include a `workouts` field in the payload
+> (the endpoint accepts it and stores it in the Apple Health tab),
+> but the GYM tile ignores it. Steps-only Shortcuts are perfectly
+> fine.
 
 ## Prerequisites
 
