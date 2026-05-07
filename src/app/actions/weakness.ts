@@ -6,6 +6,8 @@ import {
   appendDailyCheckIn,
   appendEdgeLog,
   appendOrgasmLog,
+  appendSelfHelpLog,
+  appendWorshipLog,
   setSetting,
   type OrgasmType,
 } from "@/lib/sheets";
@@ -102,6 +104,46 @@ export async function logDailyCheckInAction(
     return { ok: true };
   } catch (e) {
     console.error("[logDailyCheckInAction]", (e as Error).message);
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function logWorshipAction(
+  activity: string,
+  minutes: number,
+  note?: string
+): Promise<{ ok: true; minutes: number } | { ok: false; error: string }> {
+  try {
+    const trimmedActivity = (activity || "").trim();
+    if (!trimmedActivity) {
+      return { ok: false, error: "activity is required" };
+    }
+    const clamped = Math.max(1, Math.min(600, Math.round(minutes)));
+    await appendWorshipLog({ activity: trimmedActivity, minutes: clamped, note });
+    revalidatePath("/");
+    return { ok: true, minutes: clamped };
+  } catch (e) {
+    console.error("[logWorshipAction]", (e as Error).message);
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function logSelfHelpAction(
+  activity: string,
+  minutes: number,
+  note?: string
+): Promise<{ ok: true; minutes: number } | { ok: false; error: string }> {
+  try {
+    const trimmedActivity = (activity || "").trim();
+    if (!trimmedActivity) {
+      return { ok: false, error: "activity is required" };
+    }
+    const clamped = Math.max(1, Math.min(600, Math.round(minutes)));
+    await appendSelfHelpLog({ activity: trimmedActivity, minutes: clamped, note });
+    revalidatePath("/");
+    return { ok: true, minutes: clamped };
+  } catch (e) {
+    console.error("[logSelfHelpAction]", (e as Error).message);
     return { ok: false, error: (e as Error).message };
   }
 }

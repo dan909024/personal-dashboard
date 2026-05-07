@@ -7,6 +7,8 @@ import {
   logDailyCheckInAction,
   logEdgeAction,
   logOrgasmAction,
+  logSelfHelpAction,
+  logWorshipAction,
   setOrgasmAllowedAction,
 } from "@/app/actions/weakness";
 import type { WeaknessDashboardData } from "@/lib/weakness";
@@ -40,6 +42,8 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
   const [isPending, startTransition] = useTransition();
   const [toast, setToast] = useState<string | null>(null);
   const [checkInOpen, setCheckInOpen] = useState(false);
+  const [worshipOpen, setWorshipOpen] = useState(false);
+  const [selfHelpOpen, setSelfHelpOpen] = useState(false);
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -169,6 +173,29 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
         </div>
       )}
 
+      {/* Today's adjustments — only render when at least one is non-zero */}
+      {(data.todayWorshipMinutes > 0 ||
+        data.todaySelfHelpMinutes > 0 ||
+        data.todayCalorieDetraction > 0) && (
+        <div className="mb-3 flex flex-wrap gap-2 text-[10px] text-zinc-400">
+          {data.todayWorshipMinutes > 0 && (
+            <span className="px-2 py-0.5 border border-purple-900/60 text-purple-200">
+              Worship {data.todayWorshipMinutes}m → +{data.todayWorshipContribution}
+            </span>
+          )}
+          {data.todaySelfHelpMinutes > 0 && (
+            <span className="px-2 py-0.5 border border-cyan-900/60 text-cyan-200">
+              Self-help {data.todaySelfHelpMinutes}m → −{data.todaySelfHelpDetraction}
+            </span>
+          )}
+          {data.todayCalorieDetraction > 0 && (
+            <span className="px-2 py-0.5 border border-cyan-900/60 text-cyan-200">
+              {data.todayActiveCalories} kcal burned → −{data.todayCalorieDetraction}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="flex flex-wrap gap-2 mb-3">
         <ActionButton onClick={onAllowed} disabled={isPending} variant="emerald">
@@ -179,6 +206,20 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
         </ActionButton>
         <ActionButton onClick={onEdge} disabled={isPending} variant="amber">
           +1 edge ⚡
+        </ActionButton>
+        <ActionButton
+          onClick={() => setWorshipOpen(true)}
+          disabled={isPending}
+          variant="purple"
+        >
+          🙇 Worship time
+        </ActionButton>
+        <ActionButton
+          onClick={() => setSelfHelpOpen(true)}
+          disabled={isPending}
+          variant="cyan"
+        >
+          🧘 Self-help time
         </ActionButton>
       </div>
 
@@ -229,6 +270,50 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
           }}
         />
       )}
+
+      {/* Worship modal */}
+      {worshipOpen && (
+        <ActivityModal
+          title="Log worship time"
+          accent="purple"
+          submitLabel="Log worship"
+          onClose={() => setWorshipOpen(false)}
+          onSubmit={(activity, minutes, note) => {
+            startTransition(async () => {
+              const res = await logWorshipAction(activity, minutes, note);
+              if (res.ok) {
+                flash(`Worship +${minutes}m ✓`);
+                setWorshipOpen(false);
+                router.refresh();
+              } else {
+                flash(`Failed: ${res.error}`);
+              }
+            });
+          }}
+        />
+      )}
+
+      {/* Self-help modal */}
+      {selfHelpOpen && (
+        <ActivityModal
+          title="Log self-help time"
+          accent="cyan"
+          submitLabel="Log self-help"
+          onClose={() => setSelfHelpOpen(false)}
+          onSubmit={(activity, minutes, note) => {
+            startTransition(async () => {
+              const res = await logSelfHelpAction(activity, minutes, note);
+              if (res.ok) {
+                flash(`Self-help −${minutes}m ✓`);
+                setSelfHelpOpen(false);
+                router.refresh();
+              } else {
+                flash(`Failed: ${res.error}`);
+              }
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -253,7 +338,7 @@ function ActionButton({
   onClick: () => void;
   disabled?: boolean;
   children: React.ReactNode;
-  variant: "emerald" | "rose" | "amber";
+  variant: "emerald" | "rose" | "amber" | "purple" | "cyan";
 }) {
   const variants: Record<string, string> = {
     emerald:
@@ -262,6 +347,10 @@ function ActionButton({
       "border-rose-700 bg-rose-950/40 text-rose-200 hover:border-rose-400 hover:bg-rose-900/60",
     amber:
       "border-amber-700 bg-amber-950/40 text-amber-200 hover:border-amber-400 hover:bg-amber-900/60",
+    purple:
+      "border-purple-700 bg-purple-950/40 text-purple-200 hover:border-purple-400 hover:bg-purple-900/60",
+    cyan:
+      "border-cyan-700 bg-cyan-950/40 text-cyan-200 hover:border-cyan-400 hover:bg-cyan-900/60",
   };
   return (
     <button
@@ -272,6 +361,95 @@ function ActionButton({
     >
       {children}
     </button>
+  );
+}
+
+function ActivityModal({
+  title,
+  accent,
+  submitLabel,
+  onClose,
+  onSubmit,
+}: {
+  title: string;
+  accent: "purple" | "cyan";
+  submitLabel: string;
+  onClose: () => void;
+  onSubmit: (activity: string, minutes: number, note?: string) => void;
+}) {
+  const [activity, setActivity] = useState("");
+  const [minutes, setMinutes] = useState(15);
+  const [note, setNote] = useState("");
+  const accentRing =
+    accent === "purple"
+      ? "border-purple-700 focus:border-purple-500 accent-purple-500"
+      : "border-cyan-700 focus:border-cyan-500 accent-cyan-500";
+  const submitClass =
+    accent === "purple"
+      ? "border-purple-500 bg-purple-900/60 text-purple-100 hover:border-purple-300"
+      : "border-cyan-500 bg-cyan-900/60 text-cyan-100 hover:border-cyan-300";
+  const headerClass =
+    accent === "purple" ? "text-purple-300" : "text-cyan-300";
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className={`w-full max-w-sm border bg-[#120c1a] p-5 ${
+          accent === "purple" ? "border-purple-700" : "border-cyan-700"
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className={`text-[10px] font-bold tracking-widest uppercase mb-3 ${headerClass}`}>
+          {title}
+        </p>
+        <label className="block text-xs text-zinc-300 mb-1">Activity</label>
+        <input
+          type="text"
+          value={activity}
+          onChange={(e) => setActivity(e.target.value)}
+          placeholder={accent === "purple" ? "e.g. photo viewing, mantra" : "e.g. reading, meditation"}
+          className={`w-full text-sm bg-black/40 border text-zinc-100 p-2 mb-3 focus:outline-none ${accentRing}`}
+          autoFocus
+        />
+        <label className="block text-xs text-zinc-300 mb-1">
+          Minutes: <span className="font-bold text-zinc-100">{minutes}</span>
+        </label>
+        <input
+          type="range"
+          min={1}
+          max={120}
+          value={minutes}
+          onChange={(e) => setMinutes(Number(e.target.value))}
+          className={`w-full mb-3 ${accentRing}`}
+        />
+        <label className="block text-xs text-zinc-300 mb-1">Note (optional)</label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          className={`w-full text-xs bg-black/40 border text-zinc-100 p-2 mb-4 focus:outline-none ${accentRing}`}
+        />
+        <div className="flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white uppercase tracking-widest"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onSubmit(activity, minutes, note || undefined)}
+            disabled={!activity.trim()}
+            className={`px-3 py-1.5 text-xs border uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed ${submitClass}`}
+          >
+            {submitLabel}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -111,6 +111,8 @@ export const TAB_SCHEMAS = {
   "Orgasm Log": ["Date", "Time", "Type", "Note", "Days since previous"],
   "Edge Log": ["Date", "Time", "Note"],
   "Daily Check-in": ["Date", "Arousal (1-10)", "Note"],
+  "Worship Log": ["Date", "Time", "Activity", "Minutes", "Note"],
+  "Self-Help Log": ["Date", "Time", "Activity", "Minutes", "Note"],
   Settings: ["Setting", "Value", "Last Updated", "Updated By"],
   Denial: ["Key", "Value"],
   "Magic Links": ["Token", "Created at", "Expires at", "Used at", "IP"],
@@ -2033,17 +2035,149 @@ export async function hasArousalCheckInToday(): Promise<boolean> {
   return all.some((c) => c.date === today);
 }
 
+// ---------- Worship Log ----------
+//
+// Append-only minutes-of-worship log. Each row pushes weakness score UP by
+// (minutes × worship_weight_per_minute) on the day it was logged.
+
+export type WorshipLogRow = {
+  date: string;
+  time: string;
+  activity: string;
+  minutes: number;
+  note: string;
+};
+
+async function readWorshipLog(): Promise<WorshipLogRow[]> {
+  const rows = await readTab("Worship Log");
+  if (!rows || rows.length < 2) return [];
+  const out: WorshipLogRow[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const date = normalizeDate(r[0]);
+    if (!date) continue;
+    const minutes = Number(r[3] ?? 0);
+    if (!Number.isFinite(minutes) || minutes <= 0) continue;
+    out.push({
+      date,
+      time: String(r[1] ?? ""),
+      activity: String(r[2] ?? ""),
+      minutes,
+      note: String(r[4] ?? ""),
+    });
+  }
+  return out;
+}
+
+export async function appendWorshipLog(input: {
+  activity: string;
+  minutes: number;
+  note?: string;
+}): Promise<{ date: string; minutes: number }> {
+  await ensureTab("Worship Log");
+  const date = todaySydneyISO();
+  const time = nowSydneyTimeHHMM();
+  const minutes = Math.max(0, Math.round(input.minutes));
+  const client = sheetsClient();
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Worship Log!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[date, time, input.activity || "", minutes, input.note || ""]],
+    },
+  });
+  return { date, minutes };
+}
+
+// ---------- Self-Help Log ----------
+//
+// Append-only minutes-of-self-help log. Each row pulls weakness score DOWN by
+// (minutes × self_help_weight_per_minute) on the day it was logged.
+
+export type SelfHelpLogRow = {
+  date: string;
+  time: string;
+  activity: string;
+  minutes: number;
+  note: string;
+};
+
+async function readSelfHelpLog(): Promise<SelfHelpLogRow[]> {
+  const rows = await readTab("Self-Help Log");
+  if (!rows || rows.length < 2) return [];
+  const out: SelfHelpLogRow[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const date = normalizeDate(r[0]);
+    if (!date) continue;
+    const minutes = Number(r[3] ?? 0);
+    if (!Number.isFinite(minutes) || minutes <= 0) continue;
+    out.push({
+      date,
+      time: String(r[1] ?? ""),
+      activity: String(r[2] ?? ""),
+      minutes,
+      note: String(r[4] ?? ""),
+    });
+  }
+  return out;
+}
+
+export async function appendSelfHelpLog(input: {
+  activity: string;
+  minutes: number;
+  note?: string;
+}): Promise<{ date: string; minutes: number }> {
+  await ensureTab("Self-Help Log");
+  const date = todaySydneyISO();
+  const time = nowSydneyTimeHHMM();
+  const minutes = Math.max(0, Math.round(input.minutes));
+  const client = sheetsClient();
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Self-Help Log!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[date, time, input.activity || "", minutes, input.note || ""]],
+    },
+  });
+  return { date, minutes };
+}
+
 // ---------- Settings ----------
 
 export type WeaknessSettings = {
   orgasm_allowed: "yes" | "no";
   weakness_base_daily: number;
-  weakness_edge_weight: number;
   weakness_arousal_weight: number;
-  brutal_bonus_threshold: number;
-  brutal_bonus_per_10_edges: number;
-  brutal_bonus_max_multiplier: number;
   default_arousal_when_missing: number;
+  /** Potency of edge #1 of the cycle, #1 of the day. */
+  weakness_edge_first: number;
+  /** Decay applied per cycle edge (across days). */
+  weakness_edge_cycle_decay: number;
+  /** Decay applied per same-day edge (within a day). */
+  weakness_edge_day_decay: number;
+  /** Day-edge count above which the brutal multiplier starts ramping. */
+  brutal_bonus_threshold: number;
+  /** Multiplier increment per day-edge above threshold. */
+  brutal_bonus_per_edge: number;
+  /** Hard cap on the brutal multiplier. */
+  brutal_bonus_max_multiplier: number;
+  /** Linear addition per day-edge after the multiplier plateau. */
+  brutal_bonus_post_plateau_linear: number;
+  /** Active calories below this trigger no detraction (units must match Apple Health payload). */
+  calorie_burn_threshold: number;
+  /** Detraction at exactly the threshold. */
+  calorie_burn_base_detraction: number;
+  /** Additional detraction per unit above the threshold. */
+  calorie_burn_per_unit_above: number;
+  /** Score added per minute of worship time logged. */
+  worship_weight_per_minute: number;
+  /** Score detracted per minute of self-help time logged. */
+  self_help_weight_per_minute: number;
   phase_thresholds: Record<string, [number, number, string]>;
 };
 
@@ -2056,33 +2190,49 @@ export const DEFAULT_PHASE_THRESHOLDS: WeaknessSettings["phase_thresholds"] = {
   Submitting: [921, 1150, "Giving in, obedience taking over."],
   "Deep Submission": [1151, 1350, "Deeper and deeper under Her control."],
   "Helpless Vessel": [1351, 1550, "No control left. Just a vessel."],
-  "Eternal Edge Toy": [1551, 1750, "Conditioned to edge endlessly."],
-  "Mindless Offering": [1751, 1950, "Brainless tribute for Goddess."],
-  "Complete Slave": [1951, 999999, "No self. Pure property."],
+  "Mindless Offering": [1551, 1750, "Brainless tribute for Goddess."],
+  "Complete Slave": [1751, 2150, "No self. Pure property."],
+  "Eternal Edge Toy": [2151, 999999, "Conditioned to edge endlessly. The end."],
 };
 
 export const DEFAULT_WEAKNESS_SETTINGS: WeaknessSettings = {
   orgasm_allowed: "no",
-  weakness_base_daily: 40,
-  weakness_edge_weight: 12,
+  weakness_base_daily: 26,
   weakness_arousal_weight: 25,
-  brutal_bonus_threshold: 20,
-  brutal_bonus_per_10_edges: 0.15,
-  brutal_bonus_max_multiplier: 5.0,
   default_arousal_when_missing: 5,
+  weakness_edge_first: 30,
+  weakness_edge_cycle_decay: 0.9,
+  weakness_edge_day_decay: 0.6,
+  brutal_bonus_threshold: 10,
+  brutal_bonus_per_edge: 0.05,
+  brutal_bonus_max_multiplier: 5.0,
+  brutal_bonus_post_plateau_linear: 20,
+  calorie_burn_threshold: 487,
+  calorie_burn_base_detraction: 30,
+  calorie_burn_per_unit_above: 0.2,
+  worship_weight_per_minute: 5,
+  self_help_weight_per_minute: 3,
   phase_thresholds: DEFAULT_PHASE_THRESHOLDS,
 };
 
 /** Seed rows for the Settings tab — written once when the tab is created. */
 export const SETTINGS_SEED_ROWS: (string | number)[][] = [
   ["orgasm_allowed", "no", "", "system"],
-  ["weakness_base_daily", 40, "", "system"],
-  ["weakness_edge_weight", 12, "", "system"],
+  ["weakness_base_daily", 26, "", "system"],
   ["weakness_arousal_weight", 25, "", "system"],
-  ["brutal_bonus_threshold", 20, "", "system"],
-  ["brutal_bonus_per_10_edges", 0.15, "", "system"],
-  ["brutal_bonus_max_multiplier", 5.0, "", "system"],
   ["default_arousal_when_missing", 5, "", "system"],
+  ["weakness_edge_first", 30, "", "system"],
+  ["weakness_edge_cycle_decay", 0.9, "", "system"],
+  ["weakness_edge_day_decay", 0.6, "", "system"],
+  ["brutal_bonus_threshold", 10, "", "system"],
+  ["brutal_bonus_per_edge", 0.05, "", "system"],
+  ["brutal_bonus_max_multiplier", 5.0, "", "system"],
+  ["brutal_bonus_post_plateau_linear", 20, "", "system"],
+  ["calorie_burn_threshold", 487, "", "system"],
+  ["calorie_burn_base_detraction", 30, "", "system"],
+  ["calorie_burn_per_unit_above", 0.2, "", "system"],
+  ["worship_weight_per_minute", 5, "", "system"],
+  ["self_help_weight_per_minute", 3, "", "system"],
   ["phase_thresholds", JSON.stringify(DEFAULT_PHASE_THRESHOLDS), "", "system"],
 ];
 
@@ -2182,12 +2332,20 @@ export async function getWeaknessSettings(): Promise<WeaknessSettings> {
   return {
     orgasm_allowed: allowed === "yes" ? "yes" : "no",
     weakness_base_daily: num("weakness_base_daily", DEFAULT_WEAKNESS_SETTINGS.weakness_base_daily),
-    weakness_edge_weight: num("weakness_edge_weight", DEFAULT_WEAKNESS_SETTINGS.weakness_edge_weight),
     weakness_arousal_weight: num("weakness_arousal_weight", DEFAULT_WEAKNESS_SETTINGS.weakness_arousal_weight),
-    brutal_bonus_threshold: num("brutal_bonus_threshold", DEFAULT_WEAKNESS_SETTINGS.brutal_bonus_threshold),
-    brutal_bonus_per_10_edges: num("brutal_bonus_per_10_edges", DEFAULT_WEAKNESS_SETTINGS.brutal_bonus_per_10_edges),
-    brutal_bonus_max_multiplier: num("brutal_bonus_max_multiplier", DEFAULT_WEAKNESS_SETTINGS.brutal_bonus_max_multiplier),
     default_arousal_when_missing: num("default_arousal_when_missing", DEFAULT_WEAKNESS_SETTINGS.default_arousal_when_missing),
+    weakness_edge_first: num("weakness_edge_first", DEFAULT_WEAKNESS_SETTINGS.weakness_edge_first),
+    weakness_edge_cycle_decay: num("weakness_edge_cycle_decay", DEFAULT_WEAKNESS_SETTINGS.weakness_edge_cycle_decay),
+    weakness_edge_day_decay: num("weakness_edge_day_decay", DEFAULT_WEAKNESS_SETTINGS.weakness_edge_day_decay),
+    brutal_bonus_threshold: num("brutal_bonus_threshold", DEFAULT_WEAKNESS_SETTINGS.brutal_bonus_threshold),
+    brutal_bonus_per_edge: num("brutal_bonus_per_edge", DEFAULT_WEAKNESS_SETTINGS.brutal_bonus_per_edge),
+    brutal_bonus_max_multiplier: num("brutal_bonus_max_multiplier", DEFAULT_WEAKNESS_SETTINGS.brutal_bonus_max_multiplier),
+    brutal_bonus_post_plateau_linear: num("brutal_bonus_post_plateau_linear", DEFAULT_WEAKNESS_SETTINGS.brutal_bonus_post_plateau_linear),
+    calorie_burn_threshold: num("calorie_burn_threshold", DEFAULT_WEAKNESS_SETTINGS.calorie_burn_threshold),
+    calorie_burn_base_detraction: num("calorie_burn_base_detraction", DEFAULT_WEAKNESS_SETTINGS.calorie_burn_base_detraction),
+    calorie_burn_per_unit_above: num("calorie_burn_per_unit_above", DEFAULT_WEAKNESS_SETTINGS.calorie_burn_per_unit_above),
+    worship_weight_per_minute: num("worship_weight_per_minute", DEFAULT_WEAKNESS_SETTINGS.worship_weight_per_minute),
+    self_help_weight_per_minute: num("self_help_weight_per_minute", DEFAULT_WEAKNESS_SETTINGS.self_help_weight_per_minute),
     phase_thresholds: phaseThresholds,
   };
 }
@@ -2212,21 +2370,33 @@ export async function getWeaknessRawData(): Promise<{
   orgasms: OrgasmLogRow[];
   edges: EdgeLogRow[];
   checkIns: DailyCheckInRow[];
+  worship: WorshipLogRow[];
+  selfHelp: SelfHelpLogRow[];
+  appleHealth: AppleHealthRow[];
   settings: WeaknessSettings;
   hasArousalCheckInToday: boolean;
   mostRecentOrgasm: OrgasmLogRow | null;
 }> {
-  const [orgasms, edges, checkIns, settings] = await Promise.all([
-    readOrgasmLog(),
-    readEdgeLog(),
-    readDailyCheckIns(),
-    getWeaknessSettings(),
-  ]);
+  const [orgasms, edges, checkIns, worship, selfHelp, appleHealth, settings] =
+    await Promise.all([
+      readOrgasmLog(),
+      readEdgeLog(),
+      readDailyCheckIns(),
+      readWorshipLog(),
+      readSelfHelpLog(),
+      // 60 days covers a long denial cycle — calorie detraction needs to be
+      // available for any day in the cumulative-score iteration.
+      getRecentAppleHealth(60),
+      getWeaknessSettings(),
+    ]);
   const today = todaySydneyISO();
   return {
     orgasms,
     edges,
     checkIns,
+    worship,
+    selfHelp,
+    appleHealth,
     settings,
     hasArousalCheckInToday: checkIns.some((c) => c.date === today),
     mostRecentOrgasm: orgasms.length ? orgasms[orgasms.length - 1] : null,
