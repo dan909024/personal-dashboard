@@ -33,15 +33,22 @@
  * recorded hash.
  */
 
-// Bootstrap (test) values. Final state should fan-out to BOTH Dan's
-// chat and Harley's chat — that requires turning these constants into
-// arrays, which is its own follow-up PR. For now: single recipient,
-// using Dan's preferred public-repo email + Dan's personal Telegram
-// DM with the bot.
+// During development Daniel is the magic-link recipient via Telegram
+// only — HARLEY_EMAIL is intentionally left empty so Resend stays out
+// of the auth path until Harley's real address is filled in. The
+// login-request route is tolerant of an empty HARLEY_EMAIL: it
+// skips the email send and returns success as long as Telegram
+// delivered. If BOTH channels are unbootstrapped, the route returns
+// 503.
+//
+// Final state should fan-out to BOTH Dan's chat and Harley's chat —
+// that requires turning these constants into arrays, which is its own
+// follow-up PR. For now: single recipient, Dan's personal Telegram DM
+// with the bot.
 //
 // Types are widened (`: string`, `: number`) rather than inferred so
 // the runtime guards in src/app/api/harley/login-request/route.ts
 // (`if (!HARLEY_EMAIL)`, `TRIPWIRE_TELEGRAM_CHAT_ID === 0`) don't get
 // flagged as tautologies once the literals are populated.
-export const HARLEY_EMAIL: string = "regbeniacdlaw@gmail.com";
+export const HARLEY_EMAIL: string = "";
 export const TRIPWIRE_TELEGRAM_CHAT_ID: number = 6503455232;
