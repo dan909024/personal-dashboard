@@ -36,7 +36,7 @@
 // During development Daniel is the magic-link recipient via Telegram
 // only — HARLEY_EMAIL is intentionally left empty so Resend stays out
 // of the auth path until Harley's real address is filled in. The
-// login-request route is now tolerant of an empty HARLEY_EMAIL: it
+// login-request route is tolerant of an empty HARLEY_EMAIL: it
 // skips the email send and returns success as long as Telegram
 // delivered. If BOTH channels are unbootstrapped, the route returns
 // 503.
