@@ -1,0 +1,40 @@
+/**
+ * Harley auth identities — SOURCE OF TRUTH for who receives login
+ * delivery and audit copies. Changing these values is a security-
+ * sensitive event: the notify-harley GitHub Action prepends "AUTH
+ * CONFIG CHANGED — " to the email subject for any push that touches
+ * this file, so unexpected edits are visible to Harley immediately.
+ *
+ * Channels:
+ *   HARLEY_EMAIL — PRIMARY delivery for magic-link URLs (via Resend).
+ *   TRIPWIRE_TELEGRAM_CHAT_ID — one-way audit fan-out. The same URL
+ *   is POSTed to this Telegram chat. The bot has no other purpose
+ *   (the only inbound it handles is /start, which replies with the
+ *   caller's chat_id so this constant can be bootstrapped once).
+ *
+ * If either channel fails, the request still succeeds as long as the
+ * other delivered — the audit log records the failure either way. We
+ * don't want a single broken channel to lock Harley out.
+ *
+ * Bootstrap (after this PR ships and TELEGRAM_BOT_TOKEN is in Vercel):
+ *  1. Fill in HARLEY_EMAIL with Harley's primary address.
+ *  2. Harley creates a private Telegram channel, adds the bot as an
+ *     admin, sends any message in it. Surface the channel chat_id
+ *     (a negative integer like -100xxxxxxxxxx) via getUpdates. Paste
+ *     as TRIPWIRE_TELEGRAM_CHAT_ID.
+ *  3. Open both edits as their own PR so the diff is auditable —
+ *     that push's notify-harley email will be subject-prefixed
+ *     "AUTH CONFIG CHANGED — ", which is the first live demo of the
+ *     tamper-evident wiring.
+ *
+ * The fingerprint endpoint at /api/harley/auth-config-fingerprint
+ * hashes these two values together so external monitoring (or Harley
+ * herself) can detect tampering by comparing against a previously
+ * recorded hash.
+ */
+
+// TODO(harley-auth): replace with Harley's primary email address.
+export const HARLEY_EMAIL = "";
+
+// TODO(harley-auth): replace with the private tripwire channel chat_id (negative integer).
+export const TRIPWIRE_TELEGRAM_CHAT_ID = 0;

@@ -1,5 +1,6 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { revalidatePath, revalidateTag } from "next/cache";
 import {
   DENIAL_END_DATE_TAG,
@@ -7,10 +8,16 @@ import {
   setDenialEndDate,
   setSetting,
 } from "@/lib/sheets";
+import { verifyJWT } from "@/lib/jwt";
 
-function unauthorized(token: string): boolean {
-  const expected = process.env.HARLEY_ADMIN_TOKEN || "";
-  return !expected || token !== expected;
+async function authorized(): Promise<boolean> {
+  const c = await cookies();
+  const cookie = c.get("harley_session");
+  if (!cookie) return false;
+  const secret = process.env.HARLEY_JWT_SECRET || "";
+  if (!secret) return false;
+  const v = verifyJWT(cookie.value, secret);
+  return v.ok && v.payload.sub === "harley";
 }
 
 /**
@@ -58,12 +65,11 @@ function revalidateAll() {
 }
 
 export async function extendDenialAction(
-  token: string,
   daysOffset: number
 ): Promise<
   { ok: true; newEndDate: string } | { ok: false; error: string }
 > {
-  if (unauthorized(token)) return { ok: false, error: "unauthorized" };
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
   if (!Number.isFinite(daysOffset) || daysOffset === 0) {
     return { ok: false, error: "invalid days" };
   }
@@ -89,10 +95,9 @@ export async function extendDenialAction(
 }
 
 export async function setDenialDateAction(
-  token: string,
   isoLocal: string
 ): Promise<{ ok: true; newEndDate: string } | { ok: false; error: string }> {
-  if (unauthorized(token)) return { ok: false, error: "unauthorized" };
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
   // datetime-local format: YYYY-MM-DDTHH:MM (no TZ, no seconds)
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(isoLocal)) {
     return { ok: false, error: "invalid format" };
@@ -109,10 +114,10 @@ export async function setDenialDateAction(
   }
 }
 
-export async function clearDenialAction(
-  token: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (unauthorized(token)) return { ok: false, error: "unauthorized" };
+export async function clearDenialAction(): Promise<
+  { ok: true } | { ok: false; error: string }
+> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
   try {
     await setDenialEndDate("");
     revalidateAll();
@@ -123,10 +128,9 @@ export async function clearDenialAction(
 }
 
 export async function setOrgasmAllowedAdminAction(
-  token: string,
   value: "yes" | "no"
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (unauthorized(token)) return { ok: false, error: "unauthorized" };
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
   if (value !== "yes" && value !== "no") {
     return { ok: false, error: "invalid value" };
   }
