@@ -101,8 +101,16 @@ iOS shows the next scheduled run time.
 ## 3. Mac launchd (richer source, when laptop is open)
 
 The Mac collector reads `~/Library/Application Support/Knowledge/knowledgeC.db`
-— macOS's activity store. It's owner-readable on macOS 15+, so no Full
-Disk Access is required.
+— macOS's activity store. The file is owner-readable, but macOS TCC
+still gates the launchd execution context: a process spawned by
+launchd doesn't inherit Terminal.app's Full Disk Access grant, so
+running the script from launchd hits `EPERM` on the SQLite copy until
+FDA is granted to the actual leaf executable (`node`).
+
+(Running the script interactively from Terminal works without any FDA
+setup because Terminal.app already has the grant and child processes
+inherit it. So a manual `npx tsx scripts/screentime-mac-sync.ts` is
+fine for testing — only the launchd job needs the explicit grant.)
 
 ### One-time prerequisites
 
@@ -112,11 +120,20 @@ Disk Access is required.
    Also turn it on in iPhone Settings → Screen Time. iOS app data will
    start surfacing in the Mac DB within minutes to hours, attributed to
    their iOS bundle ids.
+3. **Grant Full Disk Access to your `node` binary**: System Settings →
+   Privacy & Security → Full Disk Access → click **+**, press
+   `Cmd+Shift+G`, and enter the absolute path to your node executable.
+   On Homebrew/installer macOS that's typically `/usr/local/bin/node`
+   (Intel) or `/opt/homebrew/bin/node` (Apple Silicon). Confirm with
+   `which node`. Toggle the entry **on**.
 
-That's it for prerequisites — no Full Disk Access dance, no schema
-discovery. If your macOS version has moved the DB elsewhere (older
-macOS or a future change), set `SCREENTIME_DB_PATH` in the plist to
-override.
+   TCC tracks the leaf executable, not the wrapper script — so granting
+   FDA to `/usr/bin/env` (the plist's entry point) does **not**
+   propagate to `node`. Granting `node` itself is what unblocks the
+   `copyfile` to the temp snapshot.
+
+If your macOS version has moved the DB elsewhere (older macOS or a
+future change), set `SCREENTIME_DB_PATH` in the plist to override.
 
 ### Install the launchd agent
 
@@ -140,6 +157,18 @@ override.
    launchctl kickstart -k gui/$UID/com.danielferrari.screentime-sync
    tail -f /tmp/screentime-sync.log
    ```
+
+### If you change FDA after the job is already loaded
+
+macOS caches a process's TCC profile when the launchd job is loaded —
+toggling FDA later doesn't propagate until the job is fully unloaded
+and reloaded. A `kickstart` alone isn't enough. The reload incantation:
+
+```
+launchctl bootout   gui/$UID ~/Library/LaunchAgents/com.danielferrari.screentime-sync.plist
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.danielferrari.screentime-sync.plist
+launchctl kickstart -k gui/$UID/com.danielferrari.screentime-sync
+```
 
 ### To uninstall
 
