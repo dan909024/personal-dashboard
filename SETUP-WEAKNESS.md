@@ -1,131 +1,177 @@
 # Goddess's Weakening Altar — setup & tuning
 
-Phase 5B adds a denial + edging tracker to the dashboard: cumulative
-weakness score, phase progression with flavor text, brutal-day bonus,
-and a 30-day weakness curve.
+Phase 5B + iterations: a denial + edging + worship + self-help tracker
+with cumulative weakness score, phase progression, brutal-day mechanic,
+calorie detraction, and a 30-day weakness curve.
 
 ## First-time setup
 
-After deploying this branch, run the init script once:
+After deploying, run the init script once:
 
 ```bash
 npx tsx scripts/init-sheet.ts
 ```
 
-It is idempotent — it only creates missing tabs and seeds initial data.
-The new tabs are:
+It is idempotent — only creates missing tabs and seeds initial Settings.
+The relevant tabs are:
 
 - **Orgasm Log** — `Date | Time | Type | Note | Days since previous`
 - **Edge Log** — `Date | Time | Note`
-- **Daily Check-in** — `Date | Arousal (1-10) | Note` (one row per day, upserted)
+- **Daily Check-in** — `Date | Arousal (1-10) | Note` (upserted, 1 row per day)
+- **Worship Log** — `Date | Time | Activity | Minutes | Note` (append-only)
+- **Self-Help Log** — `Date | Time | Activity | Minutes | Note` (append-only)
+- **Apple Health** — `Date | Steps | Workouts JSON | Active Calories | Resting Calories | Source | Synced at`
 - **Settings** — `Setting | Value | Last Updated | Updated By`
 
-The Settings tab is auto-seeded with the defaults below.
+`Apple Health` rows arrive via `/api/health/ingest` (iOS Shortcut). Active
+calories are read from this tab during weakness compute for the calorie
+detraction mechanic.
 
 ## Flipping `orgasm_allowed`
 
 Open the Sheet → **Settings** tab. Change the `Value` cell next to
-`orgasm_allowed` to `yes` or `no`. The dashboard will pick up the change
-on the next page load (cache TTL is 30 s).
+`orgasm_allowed` to `yes` or `no`, OR click the Allowed / Denied pill
+on the dashboard tile. Dashboard picks up the change on the next page
+load (cache TTL = 30 s).
 
 Effects:
+- Background image swaps (`/backgrounds/allowed.jpg` ↔ `/backgrounds/denied.jpg`)
+- Header pill flips Allowed / Denied
+- Auto-release: when `denial_end_date` (set elsewhere) is in the past
+  and `orgasm_allowed=no`, the dashboard auto-flips it to `yes` on
+  load. Idempotent.
 
-- **Background image swaps** between `/backgrounds/allowed.jpg` and
-  `/backgrounds/denied.jpg`, with a warm rose overlay vs cool slate.
-- **Header pill** flips between Allowed / Denied.
+## How the score is built
 
-Replace the placeholder JPGs in `/public/backgrounds/` with real
-artwork at any time — paths are stable.
+For each day from the day after the most recent **allowed** orgasm
+through today:
 
-## Tuning the formula
+```
+gain = base
+     + arousal × arousal_weight
+     + edge_contribution
+     + worship_minutes × worship_weight_per_minute
+     − self_help_minutes × self_help_weight_per_minute
+     − calorie_detraction
+score += gain   (floored at 0 — heavy gym days can pull the curve down)
+```
 
-All math lives in `src/lib/weakness.ts` and reads from the Settings tab
-at call time. Change values in the Sheet — no redeploy needed.
+### Edge curve — three zones
 
-| Setting                        | Default | What it does                                                                                       |
-| ------------------------------ | ------- | -------------------------------------------------------------------------------------------------- |
-| `weakness_base_daily`          | 40      | Score added every day just for being denied. Floor of weakness build-up.                           |
-| `weakness_edge_weight`         | 12      | Score added per edge logged that day. Higher = edges feel more brutal.                             |
-| `weakness_arousal_weight`      | 25      | Multiplier on the day's arousal check-in (1-10). Drives most of the variance.                      |
-| `brutal_bonus_threshold`       | 20      | Edges in a single day before the brutal-bonus kicks in. Below this, multiplier stays at ×1.0.      |
-| `brutal_bonus_per_10_edges`    | 0.15    | How much the multiplier grows per additional 10 edges past threshold (compound effect on the day). |
-| `brutal_bonus_max_multiplier`  | 5.0     | Hard ceiling on the brutal multiplier so a marathon day can't infinity the score.                  |
-| `default_arousal_when_missing` | 5       | Used when no daily check-in is logged. **Set to 5 deliberately** — the user is incentivised to log: skipping the check-in defaults to a middling number, neither rewarding nor punishing. |
+The first edge of the cycle is the most potent. Each subsequent edge
+fades on **two** axes: cycle position (across days) and within-day
+position. Above `brutal_bonus_threshold` edges in a day, a brutal
+multiplier escalates the whole day's edge contribution; past the
+multiplier plateau, additional edges add a flat linear amount.
+
+| Zone | Edges in day | Behaviour |
+| --- | --- | --- |
+| 1 | 1–`brutal_bonus_threshold` (default 10) | Diminishing per edge: `edge_first × cycle_decay^c × day_decay^d` |
+| 2 | threshold→cap | Brutal multiplier escalates linearly: `1.0 + (edges−threshold) × per_edge`, capped at `max_multiplier` |
+| 3 | past plateau | Each additional edge adds flat `post_plateau_linear` |
+
+### Calorie detraction (self-focus pulls score DOWN)
+
+Active calories burned (from Apple Health) past a threshold pull the
+score down:
+
+```
+if active_calories >= calorie_burn_threshold:
+  detraction = base + (active_calories − threshold) × per_unit_above
+else:
+  detraction = 0
+```
+
+A heavy gym day can produce negative daily gain. Cumulative score is
+floored at 0.
+
+### Worship & self-help (manual tile logs)
+
+Tapping **🙇 Worship time** or **🧘 Self-help time** on the tile opens
+a modal: pick activity name, minutes, optional note. Each row in the
+respective tab adds (worship) or subtracts (self-help) score on the
+day it was logged at a per-minute rate.
+
+## Tuning settings
+
+All math reads from the Settings tab at call time. Edit values in the
+Sheet — no redeploy needed.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `weakness_base_daily` | 26 | Flat score added per day. With default arousal → daily floor of 151. |
+| `weakness_arousal_weight` | 25 | Multiplied by daily arousal check-in (1-10). |
+| `default_arousal_when_missing` | 5 | Arousal used when no check-in is logged for the day. |
+| `weakness_edge_first` | 30 | Potency of edge #1 of cycle, #1 of day. The most potent edge. |
+| `weakness_edge_cycle_decay` | 0.90 | Each cycle edge worth `prior × 0.90`. Slow taper across days. |
+| `weakness_edge_day_decay` | 0.60 | Each *same-day* edge worth `prior × 0.60`. Faster taper within a day. |
+| `brutal_bonus_threshold` | 10 | Day-edge count above which the brutal multiplier starts. |
+| `brutal_bonus_per_edge` | 0.05 | Multiplier increment per edge above threshold. |
+| `brutal_bonus_max_multiplier` | 5.0 | Hard cap. With per_edge=0.05, plateau hit at 90 edges/day. |
+| `brutal_bonus_post_plateau_linear` | 20 | Flat add per edge past the multiplier plateau. |
+| `calorie_burn_threshold` | 487 | kcal (= 2040 kJ). Below this, no detraction. |
+| `calorie_burn_base_detraction` | 30 | Detraction at exactly the threshold. |
+| `calorie_burn_per_unit_above` | 0.2 | Detraction per kcal above threshold. |
+| `worship_weight_per_minute` | 5 | Score added per logged worship minute. |
+| `self_help_weight_per_minute` | 3 | Score subtracted per logged self-help minute. |
 
 ### Tuning examples
 
-- Want phase progression to feel **slower**? Drop
-  `weakness_base_daily` to 25 and `weakness_arousal_weight` to 18.
-- Want **edges to dominate**? Raise `weakness_edge_weight` to 20 and
-  drop `brutal_bonus_threshold` to 10 so the spiral kicks in sooner.
-- Want a **harder ceiling on a single day**? Drop
-  `brutal_bonus_max_multiplier` to 2.5.
+- **Slower phase progression** → drop `weakness_base_daily` (e.g., 18) and `weakness_arousal_weight` (e.g., 18).
+- **Edges should hit harder** → raise `weakness_edge_first` (e.g., 60) or drop `weakness_edge_cycle_decay` toward 0.95 (slower taper).
+- **Workouts should matter more** → drop `calorie_burn_threshold` to 300 or raise `calorie_burn_per_unit_above` to 0.5.
+- **Worship should feel intense** → raise `worship_weight_per_minute` to 10 (10 minutes = +100).
 
-After changing a setting, hit Refresh on the dashboard — there's no
-cache invalidation beyond the 30 s TTL.
+### Apple Health unit caveat
+
+The default `calorie_burn_threshold = 487` assumes the iOS Shortcut sends
+**kcal** (kilocalories), which is HealthKit's default. If your Shortcut
+emits **kJ** (kilojoules), use `2040` instead. Check the latest row in
+the **Apple Health** tab against your Apple Health app to confirm units.
 
 ## Phase thresholds
 
 Stored in Settings as a single JSON value under `phase_thresholds`. The
-seed sets 11 phases:
+seed sets 11 phases — Eternal Edge Toy is the FINAL stage, Complete
+Slave is the second-to-last with double the typical phase width:
 
-| #   | Phase                | Range     | Flavor                                            |
-| --- | -------------------- | --------- | ------------------------------------------------- |
-| 1   | Post-Nut Devotee     | 0–150     | Most resistant right after release.               |
-| 2   | Denying the Ache     | 151–320   | Trying to ignore the growing need.                |
-| 3   | Building Weakness    | 321–520   | Weakness is starting to build.                    |
-| 4   | Fading Subbie        | 521–720   | Resistance is fading fast.                        |
-| 5   | Breaking Adorer      | 721–920   | Mind starting to melt for Her.                    |
-| 6   | Submitting           | 921–1150  | Giving in, obedience taking over.                 |
-| 7   | Deep Submission      | 1151–1350 | Deeper and deeper under Her control.              |
-| 8   | Helpless Vessel      | 1351–1550 | No control left. Just a vessel.                   |
-| 9   | Eternal Edge Toy     | 1551–1750 | Conditioned to edge endlessly.                    |
-| 10  | Mindless Offering    | 1751–1950 | Brainless tribute for Goddess.                    |
-| 11  | Complete Slave       | 1951+     | No self. Pure property.                           |
+| #   | Phase                | Range     |
+| --- | -------------------- | --------- |
+| 1   | Post-Nut Devotee     | 0–150     |
+| 2   | Denying the Ache     | 151–320   |
+| 3   | Building Weakness    | 321–520   |
+| 4   | Fading Subbie        | 521–720   |
+| 5   | Breaking Adorer      | 721–920   |
+| 6   | Submitting           | 921–1150  |
+| 7   | Deep Submission      | 1151–1350 |
+| 8   | Helpless Vessel      | 1351–1550 |
+| 9   | Mindless Offering    | 1551–1750 |
+| 10  | Complete Slave       | 1751–2150 (double width) |
+| 11  | Eternal Edge Toy     | 2151+ (final, no escape) |
 
-To rewrite, edit the `phase_thresholds` JSON in the Settings tab. The
-shape is `{ "Phase Name": [min, max, "flavor text"] }`.
-
-## How the score is built
-
-Each day from the day after the most recent **allowed** orgasm through
-today contributes:
-
-```
-gain = (base + edges_today × edge_weight + arousal_today × arousal_weight) × brutal_multiplier
-```
-
-Where `brutal_multiplier`:
-
-- ≤ threshold edges → ×1.0
-- > threshold → 1.0 + ⌊excess ÷ 10⌋ × per_10_edges, capped at max
-
-A **lapsed** orgasm (slip) does NOT reset the score — only an "allowed"
-release does. This means a slip breaks the streak counter on the tile
-but the deeper conditioning continues to build until Goddess permits
-release.
-
-If no allowed orgasm has been logged yet, the score starts from the
-earliest event in the data set, capped to 30 days back.
+To rewrite, edit the `phase_thresholds` JSON in the Settings tab. Shape
+is `{ "Phase Name": [min, max, "flavor text"] }`. Order matters — the
+compute walks the JSON in declaration order.
 
 ## Testing the tile
 
-1. Set `orgasm_allowed = no` in Settings.
-2. Log a few edges via the **+1 edge ⚡** button. Watch `Today edges`
-   and `Today gain` increment, and the curve spike.
-3. Once you cross 20 edges in a day, the **🔥 Brutal ×N** badge should
-   appear and `Today gain` should bump up.
-4. Hit **Daily check-in** with arousal=10 and reload — score should
-   take a notable step.
-5. Hit **🙏 Thanks Goddess** to log an allowed orgasm — refresh and the
-   curve should reset (next day starts fresh from 0). Harley gets an
-   email for every orgasm log.
-6. From edge #5 onwards in a single day, Harley gets a "Dan logged
-   edge ${count} today" email per edge.
+1. `orgasm_allowed = no` in Settings.
+2. Tap **+1 edge ⚡** several times. Watch `Today edges` and `Today
+   gain` jump. Past edge 10, the brutal multiplier appears.
+3. Tap **🙇 Worship time**, log 15 minutes of "photo viewing".
+   Score climbs by `15 × worship_weight_per_minute = 75`.
+4. Tap **🧘 Self-help time**, log 30 minutes of "reading".
+   Score drops by `30 × self_help_weight_per_minute = 90`.
+5. Trigger an Apple Health POST with active calories ≥ 487. The
+   calorie chip appears on the tile and the day's gain reflects the
+   detraction.
+6. Tap **🙏 Thanks Goddess** — Harley gets an email; next day's curve
+   resets. Tap **😔 Slipped** for a lapse without resetting the curve.
+7. Edge #5 onwards in a single day → Harley gets an email per edge.
 
 ## Future phases
 
-- Telegram bot commands (`/allow`, `/deny`, `/edge` from Harley) →
-  not in this PR.
-- Aurora-shifting backgrounds based on phase → not in this PR.
-- Photo embeds tied to milestones → not in this PR.
+- Telegram bot commands (`/allow`, `/deny`, `/edge`) — not in this PR.
+- Aurora-shifting backgrounds based on phase — not in this PR.
+- Photo embeds tied to milestones — not in this PR.
+- Prizes layer (phase-crossing rewards for Harley) — parked.

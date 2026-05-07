@@ -1,20 +1,24 @@
 /**
  * Phase 5B — Goddess's Weakening Altar
  *
- * Pure compute: phase progression, weakness score, brutal-day bonus, 30-day
- * series. Read sheet rows + settings from src/lib/sheets.ts and pass them in;
- * nothing here touches the network. Tunable from the Settings tab without
- * touching the tile.
+ * Pure compute: phase progression, weakness score, brutal-day bonus,
+ * calorie detraction, worship/self-help adjustments, 30-day series.
+ * Read sheet rows + settings from src/lib/sheets.ts and pass them in;
+ * nothing here touches the network. Tunable from the Settings tab
+ * without touching the tile.
  */
 import {
   todaySydneyISO,
   getWeaknessRawData,
   getDenialEndDate,
   setSetting,
+  type AppleHealthRow,
   type DailyCheckInRow,
   type EdgeLogRow,
   type OrgasmLogRow,
+  type SelfHelpLogRow,
   type WeaknessSettings,
+  type WorshipLogRow,
 } from "./sheets";
 
 // ---------- Phase determination ----------
@@ -69,7 +73,7 @@ export function determinePhase(
   };
 }
 
-// ---------- Daily gain ----------
+// ---------- Brutal multiplier (zone 2 of edge curve) ----------
 
 export function computeBrutalBonusMultiplier(
   todaysEdges: number,
@@ -77,27 +81,130 @@ export function computeBrutalBonusMultiplier(
 ): number {
   if (todaysEdges <= settings.brutal_bonus_threshold) return 1.0;
   const excess = todaysEdges - settings.brutal_bonus_threshold;
-  const multiplier =
-    1.0 + Math.floor(excess / 10) * settings.brutal_bonus_per_10_edges;
+  const multiplier = 1.0 + excess * settings.brutal_bonus_per_edge;
   return Math.min(multiplier, settings.brutal_bonus_max_multiplier);
 }
 
+/**
+ * Day-edge count above which the brutal multiplier hits its cap. Past this
+ * count, every additional edge adds a flat linear amount (zone 3 of the
+ * edge curve) instead of multiplying further.
+ */
+function multiplierPlateauCount(settings: WeaknessSettings): number {
+  if (settings.brutal_bonus_per_edge <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const excessAtCap =
+    (settings.brutal_bonus_max_multiplier - 1.0) /
+    settings.brutal_bonus_per_edge;
+  return settings.brutal_bonus_threshold + excessAtCap;
+}
+
+// ---------- Daily gain ----------
+
+export type DailyGain = {
+  gain: number;
+  edges: number;
+  arousal: number;
+  brutalMultiplier: number;
+  edgeContribution: number;
+  arousalContribution: number;
+  worshipContribution: number;
+  worshipMinutes: number;
+  selfHelpDetraction: number;
+  selfHelpMinutes: number;
+  calorieDetraction: number;
+  activeCalories: number;
+};
+
+/**
+ * Daily gain breakdown. Sum is signed — heavy gym + self-help days can
+ * produce negative gain, which the cumulative compute floors at 0.
+ */
 export function computeDailyGain(
   date: string,
   edgeLogs: EdgeLogRow[],
+  cycleEdgesBeforeDay: number,
   checkIns: DailyCheckInRow[],
+  worship: WorshipLogRow[],
+  selfHelp: SelfHelpLogRow[],
+  appleHealth: AppleHealthRow[],
   settings: WeaknessSettings
-): { gain: number; edges: number; arousal: number; brutalMultiplier: number } {
+): DailyGain {
   const todaysEdges = edgeLogs.filter((e) => e.date === date).length;
-  const checkIn = checkIns.find((c) => c.date === date);
-  const todaysArousal =
-    checkIn?.arousal ?? settings.default_arousal_when_missing;
-  const base = settings.weakness_base_daily;
-  const edgeContribution = todaysEdges * settings.weakness_edge_weight;
-  const arousalContribution = todaysArousal * settings.weakness_arousal_weight;
+
+  // --- Edge curve: zone 1 (diminished) + zone 2 (multiplier) + zone 3 (linear plateau)
+  let diminishedSum = 0;
+  for (let d = 0; d < todaysEdges; d++) {
+    const c = cycleEdgesBeforeDay + d;
+    const cyc = Math.pow(settings.weakness_edge_cycle_decay, c);
+    const day = Math.pow(settings.weakness_edge_day_decay, d);
+    diminishedSum += settings.weakness_edge_first * cyc * day;
+  }
   const brutalMultiplier = computeBrutalBonusMultiplier(todaysEdges, settings);
-  const gain = (base + edgeContribution + arousalContribution) * brutalMultiplier;
-  return { gain, edges: todaysEdges, arousal: todaysArousal, brutalMultiplier };
+  const plateauCount = multiplierPlateauCount(settings);
+  const plateauEdges = Math.max(0, todaysEdges - plateauCount);
+  const plateauLinear = plateauEdges * settings.brutal_bonus_post_plateau_linear;
+  const edgeContribution = diminishedSum * brutalMultiplier + plateauLinear;
+
+  // --- Arousal (default when missing)
+  const checkIn = checkIns.find((c) => c.date === date);
+  const arousal =
+    checkIn?.arousal ?? settings.default_arousal_when_missing;
+  const arousalContribution = arousal * settings.weakness_arousal_weight;
+
+  // --- Worship: minutes summed across all entries on this day
+  const worshipMinutes = worship
+    .filter((w) => w.date === date)
+    .reduce((s, w) => s + (Number.isFinite(w.minutes) ? w.minutes : 0), 0);
+  const worshipContribution = worshipMinutes * settings.worship_weight_per_minute;
+
+  // --- Self-help: minutes summed
+  const selfHelpMinutes = selfHelp
+    .filter((s) => s.date === date)
+    .reduce((s, sh) => s + (Number.isFinite(sh.minutes) ? sh.minutes : 0), 0);
+  const selfHelpDetraction =
+    selfHelpMinutes * settings.self_help_weight_per_minute;
+
+  // --- Calorie detraction: max active calories across sources for the day,
+  // threshold-gated then linear above. Apple Health rows are per (date, source)
+  // so the same date can have multiple rows; take the max per the AppleHealth
+  // dashboard helper convention.
+  const ahRowsToday = appleHealth.filter((a) => a.date === date);
+  const activeCalories = ahRowsToday.reduce(
+    (m, a) => Math.max(m, a.activeCalories ?? 0),
+    0
+  );
+  let calorieDetraction = 0;
+  if (activeCalories >= settings.calorie_burn_threshold) {
+    calorieDetraction =
+      settings.calorie_burn_base_detraction +
+      (activeCalories - settings.calorie_burn_threshold) *
+        settings.calorie_burn_per_unit_above;
+  }
+
+  const gain =
+    settings.weakness_base_daily +
+    arousalContribution +
+    edgeContribution +
+    worshipContribution -
+    selfHelpDetraction -
+    calorieDetraction;
+
+  return {
+    gain,
+    edges: todaysEdges,
+    arousal,
+    brutalMultiplier,
+    edgeContribution,
+    arousalContribution,
+    worshipContribution,
+    worshipMinutes,
+    selfHelpDetraction,
+    selfHelpMinutes,
+    calorieDetraction,
+    activeCalories,
+  };
 }
 
 // ---------- Cumulative score ----------
@@ -113,21 +220,12 @@ function diffDays(fromISO: string, toISO: string): number {
   return Math.max(0, Math.round((b - a) / 86400000));
 }
 
-/**
- * Walks each day from the most recent ALLOWED orgasm (inclusive of the day
- * AFTER it) through `today`, accumulating daily gain. If no allowed orgasm
- * exists yet, starts from the earliest event date in the data set, or 30
- * days ago — whichever is more recent — to keep the score bounded for
- * fresh installs.
- */
-export function computeWeaknessScore(args: {
-  orgasms: OrgasmLogRow[];
-  edges: EdgeLogRow[];
-  checkIns: DailyCheckInRow[];
-  settings: WeaknessSettings;
-  today: string;
-}): number {
-  const { orgasms, edges, checkIns, settings, today } = args;
+function findCycleStart(
+  orgasms: OrgasmLogRow[],
+  edges: EdgeLogRow[],
+  checkIns: DailyCheckInRow[],
+  today: string
+): string {
   let lastAllowedDate: string | null = null;
   for (let i = orgasms.length - 1; i >= 0; i--) {
     if (orgasms[i].type === "allowed") {
@@ -135,27 +233,57 @@ export function computeWeaknessScore(args: {
       break;
     }
   }
-  let startDate: string;
   if (lastAllowedDate) {
-    // Start the day AFTER the allowed orgasm — release-day itself is zeroed.
-    startDate = addDays(lastAllowedDate, 1);
-  } else {
-    // No release on record — pick the earliest event date in the data, but
-    // never go further back than 30 days so a brand-new sheet doesn't get
-    // a wildly inflated score.
-    const allDates: string[] = [];
-    for (const e of edges) allDates.push(e.date);
-    for (const c of checkIns) allDates.push(c.date);
-    const earliest = allDates.length ? allDates.sort()[0] : today;
-    const thirtyDaysAgo = addDays(today, -30);
-    startDate = earliest > thirtyDaysAgo ? earliest : thirtyDaysAgo;
+    return addDays(lastAllowedDate, 1);
   }
+  // No release on record — pick the earliest event date in the data, but
+  // never go further back than 30 days so a brand-new sheet doesn't get
+  // a wildly inflated score.
+  const allDates: string[] = [];
+  for (const e of edges) allDates.push(e.date);
+  for (const c of checkIns) allDates.push(c.date);
+  const earliest = allDates.length ? allDates.sort()[0] : today;
+  const thirtyDaysAgo = addDays(today, -30);
+  return earliest > thirtyDaysAgo ? earliest : thirtyDaysAgo;
+}
+
+/**
+ * Walks each day from the day after the most recent ALLOWED orgasm through
+ * `today`, accumulating signed daily gain and floored at 0. Heavy gym +
+ * self-help days can pull the score down; a long denial run with edges
+ * pushes it up.
+ */
+export function computeWeaknessScore(args: {
+  orgasms: OrgasmLogRow[];
+  edges: EdgeLogRow[];
+  checkIns: DailyCheckInRow[];
+  worship: WorshipLogRow[];
+  selfHelp: SelfHelpLogRow[];
+  appleHealth: AppleHealthRow[];
+  settings: WeaknessSettings;
+  today: string;
+}): number {
+  const { orgasms, edges, checkIns, worship, selfHelp, appleHealth, settings, today } = args;
+  const startDate = findCycleStart(orgasms, edges, checkIns, today);
   if (startDate > today) return 0;
   const days = diffDays(startDate, today);
+  let cycleEdgesBeforeDay = 0;
   let score = 0;
   for (let d = 0; d <= days; d++) {
     const date = addDays(startDate, d);
-    score += computeDailyGain(date, edges, checkIns, settings).gain;
+    const daily = computeDailyGain(
+      date,
+      edges,
+      cycleEdgesBeforeDay,
+      checkIns,
+      worship,
+      selfHelp,
+      appleHealth,
+      settings
+    );
+    score += daily.gain;
+    if (score < 0) score = 0;
+    cycleEdgesBeforeDay += daily.edges;
   }
   return Math.round(score);
 }
@@ -171,39 +299,71 @@ export type WeaknessSeriesPoint = {
 };
 
 /**
- * Build a 30-day weakness curve. Each point is the cumulative score AS OF
- * that day, computed with the same start-date logic as computeWeaknessScore
- * so the curve resets at allowed orgasms.
+ * Build a 30-day weakness curve. We iterate cycle-from-start ONCE up to
+ * `today` and capture the cumulative score at each step. Days before the
+ * cycle start get score 0.
  */
 export function build30DaySeries(args: {
   orgasms: OrgasmLogRow[];
   edges: EdgeLogRow[];
   checkIns: DailyCheckInRow[];
+  worship: WorshipLogRow[];
+  selfHelp: SelfHelpLogRow[];
+  appleHealth: AppleHealthRow[];
   settings: WeaknessSettings;
   today: string;
 }): WeaknessSeriesPoint[] {
-  const { orgasms, edges, checkIns, settings, today } = args;
-  const out: WeaknessSeriesPoint[] = [];
+  const { orgasms, edges, checkIns, worship, selfHelp, appleHealth, settings, today } = args;
+  const startDate = findCycleStart(orgasms, edges, checkIns, today);
+  const series: WeaknessSeriesPoint[] = [];
+  // Build a date → cumulative score map by walking from cycle start.
+  const scoreByDate = new Map<string, { score: number; daily: ReturnType<typeof computeDailyGain> }>();
+  if (startDate <= today) {
+    const days = diffDays(startDate, today);
+    let cycleEdgesBeforeDay = 0;
+    let score = 0;
+    for (let d = 0; d <= days; d++) {
+      const date = addDays(startDate, d);
+      const daily = computeDailyGain(
+        date,
+        edges,
+        cycleEdgesBeforeDay,
+        checkIns,
+        worship,
+        selfHelp,
+        appleHealth,
+        settings
+      );
+      score += daily.gain;
+      if (score < 0) score = 0;
+      cycleEdgesBeforeDay += daily.edges;
+      scoreByDate.set(date, { score: Math.round(score), daily });
+    }
+  }
   for (let i = 29; i >= 0; i--) {
     const date = addDays(today, -i);
-    const score = computeWeaknessScore({
-      orgasms,
-      edges,
-      checkIns,
-      settings,
-      today: date,
-    });
-    const daily = computeDailyGain(date, edges, checkIns, settings);
-    const phase = determinePhase(score, settings);
-    out.push({
-      date,
-      weakness: score,
-      dailyGain: Math.round(daily.gain),
-      edges: daily.edges,
-      phase: phase.name,
-    });
+    const entry = scoreByDate.get(date);
+    if (entry) {
+      const phase = determinePhase(entry.score, settings);
+      series.push({
+        date,
+        weakness: entry.score,
+        dailyGain: Math.round(entry.daily.gain),
+        edges: entry.daily.edges,
+        phase: phase.name,
+      });
+    } else {
+      // Pre-cycle: zeroed point, kept so the chart x-axis stays uniform.
+      series.push({
+        date,
+        weakness: 0,
+        dailyGain: 0,
+        edges: 0,
+        phase: determinePhase(0, settings).name,
+      });
+    }
   }
-  return out;
+  return series;
 }
 
 // ---------- Dashboard aggregator ----------
@@ -215,6 +375,12 @@ export type WeaknessDashboardData = {
   weaknessScore: number;
   todayDailyGain: number;
   todayBrutalMultiplier: number;
+  todayWorshipMinutes: number;
+  todayWorshipContribution: number;
+  todaySelfHelpMinutes: number;
+  todaySelfHelpDetraction: number;
+  todayActiveCalories: number;
+  todayCalorieDetraction: number;
   currentPhase: PhaseInfo;
   thirtyDaySeries: WeaknessSeriesPoint[];
   orgasmAllowed: "yes" | "no";
@@ -236,7 +402,17 @@ export async function getDashboardWeakness(): Promise<WeaknessDashboardData> {
     // Sheet not configured — return a zeroed shell so the page still renders.
     return emptyDashboard(today);
   }
-  const { orgasms, edges, checkIns, settings, hasArousalCheckInToday, mostRecentOrgasm } = raw;
+  const {
+    orgasms,
+    edges,
+    checkIns,
+    worship,
+    selfHelp,
+    appleHealth,
+    settings,
+    hasArousalCheckInToday,
+    mostRecentOrgasm,
+  } = raw;
 
   // Auto-release: when the denial countdown expires, flip orgasm_allowed
   // from "no" to "yes". Triggers on dashboard load — idempotent because
@@ -258,10 +434,44 @@ export async function getDashboardWeakness(): Promise<WeaknessDashboardData> {
     }
   }
 
-  const score = computeWeaknessScore({ orgasms, edges, checkIns, settings, today });
-  const daily = computeDailyGain(today, edges, checkIns, settings);
+  const score = computeWeaknessScore({
+    orgasms,
+    edges,
+    checkIns,
+    worship,
+    selfHelp,
+    appleHealth,
+    settings,
+    today,
+  });
+
+  // Today's gain breakdown — for tile display we need the cumulative cycle
+  // edges going INTO today, not from-zero.
+  const startDate = findCycleStart(orgasms, edges, checkIns, today);
+  const cycleEdgesBeforeToday = edges.filter(
+    (e) => e.date >= startDate && e.date < today
+  ).length;
+  const daily = computeDailyGain(
+    today,
+    edges,
+    cycleEdgesBeforeToday,
+    checkIns,
+    worship,
+    selfHelp,
+    appleHealth,
+    settings
+  );
   const phase = determinePhase(score, settings);
-  const series = build30DaySeries({ orgasms, edges, checkIns, settings, today });
+  const series = build30DaySeries({
+    orgasms,
+    edges,
+    checkIns,
+    worship,
+    selfHelp,
+    appleHealth,
+    settings,
+    today,
+  });
 
   const daysDenied = mostRecentOrgasm ? diffDays(mostRecentOrgasm.date, today) : 0;
   // Edges since the most recent orgasm (any type). Same logic as the sheet
@@ -280,6 +490,12 @@ export async function getDashboardWeakness(): Promise<WeaknessDashboardData> {
     weaknessScore: score,
     todayDailyGain: Math.round(daily.gain),
     todayBrutalMultiplier: daily.brutalMultiplier,
+    todayWorshipMinutes: daily.worshipMinutes,
+    todayWorshipContribution: Math.round(daily.worshipContribution),
+    todaySelfHelpMinutes: daily.selfHelpMinutes,
+    todaySelfHelpDetraction: Math.round(daily.selfHelpDetraction),
+    todayActiveCalories: daily.activeCalories,
+    todayCalorieDetraction: Math.round(daily.calorieDetraction),
     currentPhase: phase,
     thirtyDaySeries: series,
     orgasmAllowed: settings.orgasm_allowed,
@@ -300,6 +516,12 @@ function emptyDashboard(_today: string): WeaknessDashboardData {
     weaknessScore: 0,
     todayDailyGain: 0,
     todayBrutalMultiplier: 1,
+    todayWorshipMinutes: 0,
+    todayWorshipContribution: 0,
+    todaySelfHelpMinutes: 0,
+    todaySelfHelpDetraction: 0,
+    todayActiveCalories: 0,
+    todayCalorieDetraction: 0,
     currentPhase: {
       name: "Unconfigured",
       flavorText: "Set up the Sheet to start tracking.",
