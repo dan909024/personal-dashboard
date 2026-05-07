@@ -81,16 +81,69 @@ function summarizeScreentime(rows: ScreenTimeRow[]): PhoneTileSummary {
   return { todayDate, todayApps, todayTotal, sevenDayTotal, fallbackApps };
 }
 
+// Bundle id → friendly display name. Apps not listed here render as
+// their raw label (bundle id from mac_launchd, or free-text from
+// ios_shortcut). Add entries as new apps appear in the data.
+const APP_DISPLAY_NAMES: Record<string, string> = {
+  // Mac apps
+  "com.anthropic.claudefordesktop": "Claude Desktop",
+  "com.tinyspeck.slackmacgap": "Slack",
+  "com.openai.atlas": "Atlas",
+  "com.google.Chrome": "Chrome",
+  "com.granola.app": "Granola",
+  "com.daisydiskapp.DaisyDiskStandAlone": "DaisyDisk",
+  "com.apple.Terminal": "Terminal",
+  "com.apple.finder": "Finder",
+  "com.apple.TextEdit": "TextEdit",
+  "com.apple.Safari": "Safari",
+  "com.apple.Photos": "Photos",
+  "com.apple.MobileSMS": "Messages",
+  "com.apple.systempreferences": "System Settings",
+  "com.apple.shortcuts": "Shortcuts",
+  "com.apple.ScreenContinuity": "Screen Continuity",
+  // iOS apps that may surface via Share Across Devices
+  "com.burbn.instagram": "Instagram",
+  "com.atebits.Tweetie2": "X",
+  "com.toyopagroup.picaboo": "Snapchat",
+  "com.cardify.tinder": "Tinder",
+  "co.match.tinder": "Tinder",
+  "com.hinge.app": "Hinge",
+  "com.bumble.app": "Bumble",
+  "ru.keepcoder.Telegram": "Telegram",
+  "com.apple.mobilesafari": "Safari",
+  "com.apple.mobilemail": "Mail",
+  "com.apple.mobilenotes": "Notes",
+  "com.apple.mobilecal": "Calendar",
+  "com.apple.mobilephone": "Phone",
+  "com.spotify.client": "Spotify",
+  "com.apple.podcasts": "Podcasts",
+  "com.netflix.Netflix": "Netflix",
+  "com.google.ios.youtube": "YouTube",
+  "com.zhiliaoapp.musically": "TikTok",
+  "com.facebook.Facebook": "Facebook",
+  "com.facebook.Messenger": "Messenger",
+  "net.whatsapp.WhatsApp": "WhatsApp",
+  "com.apple.iBooks": "Books",
+  "com.apple.Maps": "Maps",
+};
+
+function displayAppName(label: string): string {
+  return APP_DISPLAY_NAMES[label] ?? label;
+}
+
 function aggregateTopApps(
   rows: ScreenTimeRow[],
   n: number,
 ): { label: string; minutes: number; sources: string[] }[] {
+  // Group by display name so different bundle ids that map to the same
+  // app (e.g. com.cardify.tinder and co.match.tinder → Tinder) collapse.
   const map = new Map<string, { minutes: number; sources: Set<string> }>();
   for (const r of rows) {
-    const e = map.get(r.label) || { minutes: 0, sources: new Set<string>() };
+    const display = displayAppName(r.label);
+    const e = map.get(display) || { minutes: 0, sources: new Set<string>() };
     e.minutes += r.minutes;
     e.sources.add(r.source);
-    map.set(r.label, e);
+    map.set(display, e);
   }
   return Array.from(map.entries())
     .map(([label, v]) => ({
