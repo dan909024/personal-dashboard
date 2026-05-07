@@ -6,8 +6,12 @@
  * aggregated locally in $TZ, POSTed to the dashboard's screentime
  * ingest endpoint.
  *
- * The DB is owner-readable on macOS 15+ — no Full Disk Access needed.
- * On older macOS that path may differ; override with SCREENTIME_DB_PATH.
+ * The DB is owner-readable, but launchd-spawned processes don't
+ * inherit Terminal.app's TCC profile, so the launchd job needs Full
+ * Disk Access granted to the leaf binary that opens the file —
+ * `node` (typically /usr/local/bin/node or /opt/homebrew/bin/node).
+ * Interactive runs from Terminal work without any FDA setup.
+ * On older macOS the DB path may differ; override with SCREENTIME_DB_PATH.
  *
  * iOS apps surface here when "Share Across Devices" is on in both
  * iOS and macOS Screen Time settings. They typically appear under
