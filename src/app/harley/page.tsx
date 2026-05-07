@@ -1,44 +1,35 @@
 /**
  * Harley admin page — Goddess control panel.
  *
- * Auth: query string token compared to the HARLEY_ADMIN_TOKEN env var.
- * No cookies, no sessions — Harley bookmarks the URL with the token
- * once. Rotate the token by changing the env var.
+ * Auth: httpOnly JWT cookie `harley_session` signed with HARLEY_JWT_SECRET.
+ * The cookie is issued by /harley/verify after consuming a Telegram
+ * magic-link token (see /api/harley/login-request).
  *
- * Reads denial state UNCACHED (readDenialEndDate / getWeaknessSettings)
- * so the page reflects writes immediately, even within the 30s cache TTL
- * the dashboard uses.
+ * The legacy ?token= query-string auth has been removed. If the cookie
+ * is missing or invalid, we render <LoginButton /> instead.
  */
+import { cookies } from "next/headers";
 import { readDenialEndDate, getWeaknessSettings } from "@/lib/sheets";
+import { verifyJWT } from "@/lib/jwt";
 import { HarleyForm } from "./HarleyForm";
+import { LoginButton } from "./LoginButton";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export default async function HarleyAdminPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ token?: string }>;
-}) {
-  const params = await searchParams;
-  const token = params.token || "";
-  const expected = process.env.HARLEY_ADMIN_TOKEN || "";
+export default async function HarleyAdminPage() {
+  const c = await cookies();
+  const sessionCookie = c.get("harley_session");
+  const secret = process.env.HARLEY_JWT_SECRET || "";
 
-  if (!expected) {
-    return (
-      <Notice
-        title="Not configured"
-        body={
-          <>
-            Set <code className="bg-black/30 px-1">HARLEY_ADMIN_TOKEN</code>{" "}
-            in Vercel env, then redeploy.
-          </>
-        }
-      />
-    );
+  let authed = false;
+  if (sessionCookie && secret) {
+    const v = verifyJWT(sessionCookie.value, secret);
+    if (v.ok && v.payload.sub === "harley") authed = true;
   }
-  if (token !== expected) {
-    return <Notice title="Unauthorized" body="Bad or missing token." />;
+
+  if (!authed) {
+    return <LoginButton />;
   }
 
   const [endDate, settings] = await Promise.all([
@@ -46,30 +37,5 @@ export default async function HarleyAdminPage({
     getWeaknessSettings(),
   ]);
 
-  return (
-    <HarleyForm
-      token={token}
-      endDate={endDate}
-      allowed={settings.orgasm_allowed}
-    />
-  );
-}
-
-function Notice({
-  title,
-  body,
-}: {
-  title: string;
-  body: React.ReactNode;
-}) {
-  return (
-    <div className="min-h-screen bg-black text-zinc-300 flex items-center justify-center p-8">
-      <div className="max-w-sm text-center">
-        <p className="text-[10px] font-bold tracking-widest text-rose-400 uppercase mb-2">
-          {title}
-        </p>
-        <p className="text-sm">{body}</p>
-      </div>
-    </div>
-  );
+  return <HarleyForm endDate={endDate} allowed={settings.orgasm_allowed} />;
 }

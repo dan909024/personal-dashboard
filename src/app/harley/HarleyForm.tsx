@@ -13,11 +13,9 @@ import {
 type ActionResult = { ok: true } | { ok: false; error: string } | { ok: true; newEndDate: string };
 
 export function HarleyForm({
-  token,
   endDate,
   allowed,
 }: {
-  token: string;
   endDate: string | null;
   allowed: "yes" | "no";
 }) {
@@ -44,7 +42,7 @@ export function HarleyForm({
   };
 
   const onAdd = (days: number, label: string) => {
-    run(label, () => extendDenialAction(token, days));
+    run(label, () => extendDenialAction(days));
   };
 
   const onApplyDate = () => {
@@ -52,22 +50,22 @@ export function HarleyForm({
       flash("Pick a date first");
       return;
     }
-    run("Date set", () => setDenialDateAction(token, absoluteDate));
+    run("Date set", () => setDenialDateAction(absoluteDate));
   };
 
   const onClear = () => {
     if (!confirm("Clear the denial target? Countdown will disappear.")) return;
-    run("Cleared", () => clearDenialAction(token));
+    run("Cleared", () => clearDenialAction());
   };
 
   const onAllow = () => {
     if (!confirm("Allow him now?")) return;
-    run("Allowed", () => setOrgasmAllowedAdminAction(token, "yes"));
+    run("Allowed", () => setOrgasmAllowedAdminAction("yes"));
   };
 
   const onDeny = () => {
     if (!confirm("Deny him now?")) return;
-    run("Denied", () => setOrgasmAllowedAdminAction(token, "no"));
+    run("Denied", () => setOrgasmAllowedAdminAction("no"));
   };
 
   const summary = describeEndDate(endDate);
