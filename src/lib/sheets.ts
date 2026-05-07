@@ -113,6 +113,8 @@ export const TAB_SCHEMAS = {
   "Daily Check-in": ["Date", "Arousal (1-10)", "Note"],
   Settings: ["Setting", "Value", "Last Updated", "Updated By"],
   Denial: ["Key", "Value"],
+  "Magic Links": ["Token", "Created at", "Expires at", "Used at", "IP"],
+  "Magic Link Audit": ["Timestamp", "IP", "Action", "Detail"],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -2228,4 +2230,151 @@ export async function getWeaknessRawData(): Promise<{
     hasArousalCheckInToday: checkIns.some((c) => c.date === today),
     mostRecentOrgasm: orgasms.length ? orgasms[orgasms.length - 1] : null,
   };
+}
+
+// ---------- Magic Links + audit (Telegram /harley auth) ----------
+//
+// Two append-mostly tabs:
+//   Magic Links: one row per issued token, marked used_at on consumption.
+//   Magic Link Audit: forensic event log (request, send_*, verify_*,
+//   rate_limit_hit). Read-only from app code outside this section.
+//
+// Both auto-create on first write via ensureTab(). No init-sheet seeding
+// needed — the tabs come into existence the first time Harley clicks
+// "Send access link to Telegram".
+
+export type MagicLinkRow = {
+  token: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+  ip: string;
+};
+
+export async function appendMagicLink(
+  token: string,
+  expiresAtISO: string,
+  ip: string
+): Promise<void> {
+  const client = sheetsClient();
+  await ensureTab("Magic Links");
+  const createdAt = new Date().toISOString();
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Magic Links!A1",
+    valueInputOption: "RAW",
+    requestBody: { values: [[token, createdAt, expiresAtISO, "", ip]] },
+  });
+}
+
+export async function findMagicLink(token: string): Promise<MagicLinkRow | null> {
+  if (!token) return null;
+  if (!isConfigured()) return null;
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Magic Links!A1:E",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const rows = (res.data.values || []) as (string | number)[][];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i] || [];
+      if (String(r[0] ?? "") !== token) continue;
+      return {
+        token,
+        createdAt: String(r[1] ?? ""),
+        expiresAt: String(r[2] ?? ""),
+        usedAt: r[3] ? String(r[3]) : null,
+        ip: String(r[4] ?? ""),
+      };
+    }
+    return null;
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return null;
+    console.error("[sheets] error reading Magic Links:", msg);
+    return null;
+  }
+}
+
+export async function markMagicLinkUsed(token: string): Promise<void> {
+  const client = sheetsClient();
+  const id = sheetId();
+  const res = await client.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: "Magic Links!A1:E",
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
+  const rows = (res.data.values || []) as (string | number)[][];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    if (String(r[0] ?? "") !== token) continue;
+    const sheetRow = i + 1;
+    await client.spreadsheets.values.update({
+      spreadsheetId: id,
+      range: `Magic Links!D${sheetRow}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[new Date().toISOString()]] },
+    });
+    return;
+  }
+}
+
+export async function appendMagicLinkAudit(
+  ip: string,
+  action: string,
+  detail: string
+): Promise<void> {
+  try {
+    const client = sheetsClient();
+    await ensureTab("Magic Link Audit");
+    await client.spreadsheets.values.append({
+      spreadsheetId: sheetId(),
+      range: "Magic Link Audit!A1",
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [[new Date().toISOString(), ip, action, detail]],
+      },
+    });
+  } catch (e) {
+    // Audit must never throw — losing a row is preferable to breaking
+    // the request flow. Log and move on.
+    console.error("[sheets] audit write failed:", (e as Error).message);
+  }
+}
+
+/**
+ * Count audit rows for a given IP whose action == "request" and whose
+ * timestamp is at or after the given epoch milliseconds. Used by the
+ * login-request rate limiter (3/hour, 10/day).
+ */
+export async function countMagicLinkRequests(
+  ip: string,
+  sinceMs: number
+): Promise<number> {
+  if (!isConfigured()) return 0;
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Magic Link Audit!A1:D",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const rows = (res.data.values || []) as (string | number)[][];
+    let count = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i] || [];
+      if (String(r[1] ?? "") !== ip) continue;
+      if (String(r[2] ?? "") !== "request") continue;
+      const ts = Date.parse(String(r[0] ?? ""));
+      if (!isNaN(ts) && ts >= sinceMs) count++;
+    }
+    return count;
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return 0;
+    console.error("[sheets] error reading Magic Link Audit:", msg);
+    return 0;
+  }
 }
