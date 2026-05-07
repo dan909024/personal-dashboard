@@ -1,0 +1,46 @@
+# Every-30-min Whoop sync. Hits /api/cron/whoop-sync, which upserts the
+# rolling 3-day window in the Whoop Daily tab so Harley has fresh data
+# to check throughout the day.
+#
+# Lives in GH Actions because Vercel Hobby cron schedules are daily-only.
+# The Vercel daily cron at 22:00 UTC is kept as a defensive backup —
+# negligible cost and acts as a hard floor if GH Actions gets paused or
+# drifts.
+#
+# GitHub cron is best-effort and can drift 10+ min under load. Whoop's
+# own backend doesn't update strain sub-15-min anyway, so the drift
+# isn't user-visible.
+#
+# Whoop API quota: 12 calls/run × 48 runs/day = 576/day, ~6% of the
+# 10,000/day limit (per https://developer.whoop.com/docs/developing/rate-limiting/).
+
+name: Whoop sync (every 30 min)
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:  # manual trigger from the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit whoop-sync endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DASHBOARD_BASE_URL: ${{ secrets.DASHBOARD_BASE_URL }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$DASHBOARD_BASE_URL/api/cron/whoop-sync")
+
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "Status: $status"
+          echo "Body: $body"
+
+          if [ "$status" -ne 200 ]; then
+            echo "Whoop sync failed"
+            exit 1
+          fi
