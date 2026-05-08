@@ -236,28 +236,7 @@ export default async function Dashboard({
         }}
       />
 
-      {/* Coach panel — fixed right strip on md+, fades into the page on its left edge.
-          On phones it's a smaller bottom-right portrait so she's still visible. */}
-      <div
-        aria-hidden
-        className="md:hidden fixed bottom-3 right-3 w-28 h-36 rounded-md bg-cover bg-center pointer-events-none z-0 ring-1 ring-white/20 shadow-lg"
-        style={{ backgroundImage: "url('/coach.jpg')" }}
-      />
-      <div
-        aria-hidden
-        className="hidden md:block fixed top-0 right-0 bottom-0 w-[260px] lg:w-[320px] bg-cover bg-center pointer-events-none z-0"
-        style={{ backgroundImage: "url('/coach.jpg')" }}
-      >
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              "linear-gradient(to right, rgba(10,10,10,0.95) 0%, rgba(10,10,10,0.35) 28%, transparent 55%)",
-          }}
-        />
-      </div>
-
-      <div className="relative z-10 md:mr-[260px] lg:mr-[320px]">
+      <div className="relative z-10">
         {/* Setup banner if env not configured */}
         {!configured && (
           <div className="w-full bg-amber-900/80 backdrop-blur-sm border-b border-amber-700 px-4 py-2 text-xs text-amber-100">
@@ -284,12 +263,21 @@ export default async function Dashboard({
         {/* Top strip */}
         <div className="w-full bg-black/60 backdrop-blur-sm border-b border-[#222] px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold tracking-widest text-white uppercase">
-              WEEK {week} &middot; {review.label} &middot;{" "}
-              <span className="text-red-400">
-                OWED HARLEY: ${configured ? owedHarley : 135}
-              </span>
-            </p>
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className="w-11 h-11 shrink-0 rounded-full bg-cover bg-center ring-2 ring-rose-400/60 shadow-md"
+                style={{ backgroundImage: "url('/coach.jpg')" }}
+                aria-label="Coach Harley"
+                title="Coach Harley"
+              />
+              <p className="text-sm font-semibold tracking-widest text-white uppercase truncate">
+                <span className="text-rose-300">COACH HARLEY</span>{" "}
+                &middot; WEEK {week} &middot; {review.label} &middot;{" "}
+                <span className="text-red-400">
+                  OWED: ${configured ? owedHarley : 135}
+                </span>
+              </p>
+            </div>
             <div className="flex items-center gap-3 shrink-0">
               <SystemHealthPill health={sysHealth} configured={configured} />
               <SyncButton />
