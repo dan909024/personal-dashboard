@@ -1156,6 +1156,68 @@ export const getDashboardAmex = unstable_cache(
   { revalidate: 60 }
 );
 
+export type DashboardTransactions = {
+  charges: AmexTransactionRow[];
+  todayChargeTotal: number;
+  sevenDayChargeTotal: number;
+  thirtyDayChargeTotal: number;
+  /** Most recent "balance" row from Amex weekly summaries. null if none. */
+  latestBalance: { date: string; amount: number; currency: string } | null;
+  hasAnyData: boolean;
+};
+
+/**
+ * Aggregator for the TRANSACTIONS tile + /transactions page. Includes balance
+ * rows so the tile can show the latest Amex balance alongside today/7d spend.
+ * Excludes "unparsed" rows — those are diagnostic, not user-facing.
+ */
+export const getDashboardTransactions = unstable_cache(
+  async (): Promise<DashboardTransactions> => {
+    const all = await getRecentAmexTransactions(30, { includeBalance: true });
+    const charges = all
+      .filter((r) => r.type === "charge")
+      // Sort by transaction date desc, then by syncedAt desc as tie-breaker
+      // so same-day charges show in arrival order.
+      .sort((a, b) => {
+        if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+        return a.syncedAt < b.syncedAt ? 1 : a.syncedAt > b.syncedAt ? -1 : 0;
+      });
+    const balances = all
+      .filter((r) => r.type === "balance")
+      .sort((a, b) => (a.syncedAt < b.syncedAt ? 1 : -1));
+
+    const today = todaySydneyISO();
+    const sevenDayCutoff = new Date(Date.parse(today + "T00:00:00Z") - 6 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+
+    const todayChargeTotal = charges
+      .filter((c) => c.date === today)
+      .reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0);
+    const sevenDayChargeTotal = charges
+      .filter((c) => c.date >= sevenDayCutoff)
+      .reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0);
+    const thirtyDayChargeTotal = charges.reduce(
+      (s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0),
+      0
+    );
+
+    const latest = balances[0];
+    return {
+      charges,
+      todayChargeTotal,
+      sevenDayChargeTotal,
+      thirtyDayChargeTotal,
+      latestBalance: latest
+        ? { date: latest.date, amount: latest.amount, currency: latest.currency || "AUD" }
+        : null,
+      hasAnyData: all.length > 0,
+    };
+  },
+  ["dashboard:transactions"],
+  { revalidate: 60 }
+);
+
 // ---------- Harley Ledger ----------
 //
 // One running balance Daniel owes Harley. Two inputs:
