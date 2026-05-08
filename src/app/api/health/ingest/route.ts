@@ -16,6 +16,8 @@
  *     workouts: [{ type, durationMin, strain?, source }],
  *     activeCalories?: number,
  *     restingCalories?: number,
+ *     water?: number   // milliliters; the Auto Export Shortcut maps
+ *                      // HealthKit dietaryWater (incl. Ladder) → ml.
  *     source: "ios-shortcut"
  *   }
  */
@@ -33,6 +35,7 @@ export const dynamic = "force-dynamic";
 const STEPS_CAP = 100000;
 const CAL_CAP = 20000;
 const WORKOUT_DURATION_CAP_MIN = 24 * 60;
+const WATER_ML_CAP = 15000;
 
 function bad(msg: string, status = 400) {
   // 400s are usually the Shortcut sending the wrong shape (date format, missing
@@ -119,6 +122,17 @@ export async function POST(req: NextRequest) {
 
   const workouts = normalizeWorkouts(b.workouts);
 
+  // Accept water either in milliliters ("water": 2500) or liters
+  // ("water": 2.5). Anything < 50 is treated as liters (no plausible
+  // adult drinks <50ml in a day) and converted up. Anything bigger is
+  // assumed already in ml.
+  const waterRaw = asNumber(b.water);
+  let waterMl: number | undefined;
+  if (waterRaw !== undefined && waterRaw > 0) {
+    const asMl = waterRaw < 50 ? waterRaw * 1000 : waterRaw;
+    waterMl = clamp(Math.round(asMl), 0, WATER_ML_CAP);
+  }
+
   const row: AppleHealthRow = {
     date,
     steps,
@@ -127,6 +141,7 @@ export async function POST(req: NextRequest) {
     restingCalories,
     source,
     syncedAt: new Date().toISOString(),
+    ...(waterMl !== undefined ? { waterMl } : {}),
   };
 
   try {

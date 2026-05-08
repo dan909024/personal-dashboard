@@ -1,0 +1,41 @@
+# Every-5-min calendar poll. Hits /api/cron/calendar-poll, which fetches
+# the shared Google Calendar, diffs vs the snapshot in the
+# "Calendar Events" sheet tab, and DMs Daniel via Telegram for any new
+# Harley-authored event.
+#
+# Lives in GH Actions because Vercel Hobby cron schedules max out at
+# daily-only / 2 crons total, which we've already used.
+#
+# GitHub cron is best-effort and can drift several minutes under load.
+# That's fine for "Harley added a task" — a 5-15min delay isn't visible.
+
+name: Calendar poll (every 5 min)
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:  # manual trigger from the Actions tab
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit calendar-poll endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DASHBOARD_BASE_URL: ${{ secrets.DASHBOARD_BASE_URL }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$DASHBOARD_BASE_URL/api/cron/calendar-poll")
+
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "Status: $status"
+          echo "Body: $body"
+
+          if [ "$status" -ne 200 ]; then
+            echo "Calendar poll failed"
+            exit 1
+          fi

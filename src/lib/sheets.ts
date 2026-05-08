@@ -86,6 +86,7 @@ export const TAB_SCHEMAS = {
     "Resting Calories",
     "Source",
     "Synced at",
+    "Water (ml)",
   ],
   "Whoop Workouts": [
     "Date",
@@ -127,6 +128,14 @@ export const TAB_SCHEMAS = {
     "Email ID",
     "Subject",
     "Synced at",
+  ],
+  "Calendar Events": [
+    "Event ID",
+    "Etag",
+    "Summary",
+    "Start ISO",
+    "First seen at",
+    "Notified at",
   ],
 } as const;
 
@@ -201,6 +210,32 @@ function decodeVercelEnvJson(raw: string): string {
   return out;
 }
 
+/**
+ * Parse GOOGLE_SERVICE_ACCOUNT_JSON, tolerating the escaped form Vercel
+ * CLI writes to .env.local. Exported so other Google API modules
+ * (calendar, drive) can reuse the same fallback.
+ */
+export function loadServiceAccountCreds(): Record<string, unknown> {
+  const raw = serviceAccountJsonRaw();
+  if (!raw) {
+    throw new Error(
+      "GOOGLE_SERVICE_ACCOUNT_JSON not set."
+    );
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const decoded = decodeVercelEnvJson(raw);
+    try {
+      return JSON.parse(decoded);
+    } catch (e2) {
+      throw new Error(
+        `GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON: ${(e2 as Error).message}`
+      );
+    }
+  }
+}
+
 function sheetsClient(): sheets_v4.Sheets {
   if (cachedClient) return cachedClient;
   if (!isConfigured()) {
@@ -208,27 +243,8 @@ function sheetsClient(): sheets_v4.Sheets {
       "Google Sheets not configured. Set GOOGLE_SERVICE_ACCOUNT_JSON and SHEET_ID."
     );
   }
-  let creds;
-  const raw = serviceAccountJsonRaw();
-  try {
-    creds = JSON.parse(raw);
-  } catch {
-    // Fallback for .env.local values written by Vercel CLI. Outside of
-    // string literals it emits literal "\n" (2 chars), but JSON parsers
-    // reject backslash outside strings. Inside string literals "\n" is
-    // already a valid JSON escape. So convert \n -> newline only when
-    // OUTSIDE a string, leaving in-string escapes untouched.
-    const decoded = decodeVercelEnvJson(raw);
-    try {
-      creds = JSON.parse(decoded);
-    } catch (e2) {
-      throw new Error(
-        `GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON: ${(e2 as Error).message}`
-      );
-    }
-  }
   const auth = new google.auth.GoogleAuth({
-    credentials: creds,
+    credentials: loadServiceAccountCreds(),
     scopes: [
       "https://www.googleapis.com/auth/spreadsheets",
       "https://www.googleapis.com/auth/drive.readonly",
@@ -562,26 +578,6 @@ export const getDailyLog = unstable_cache(
     return null;
   },
   ["dashboard:daily-log"],
-  { revalidate: 30 }
-);
-
-export const getHarleyMeter = unstable_cache(
-  async (): Promise<number> => {
-    const rows = await readTab("Daily Log");
-    if (!rows || rows.length < 2) return 0;
-    // Walk from bottom looking for the most recent non-empty harleyMeter cell.
-    for (let i = rows.length - 1; i >= 1; i--) {
-      const r = rows[i];
-      if (!r || r.length === 0) continue;
-      const v = r[6];
-      if (v !== undefined && v !== null && String(v).trim() !== "") {
-        const n = Number(String(v).replace(/[^0-9.\-]/g, ""));
-        if (!isNaN(n)) return n;
-      }
-    }
-    return 0;
-  },
-  ["dashboard:harley-meter"],
   { revalidate: 30 }
 );
 
@@ -1410,6 +1406,7 @@ export type AppleHealthRow = {
   restingCalories?: number;
   source: string; // e.g. "ios-shortcut"
   syncedAt: string; // ISO
+  waterMl?: number;
 };
 
 /**
@@ -1424,7 +1421,7 @@ export async function appendAppleHealth(
   await ensureTab("Apple Health");
   const get = await client.spreadsheets.values.get({
     spreadsheetId: id,
-    range: "Apple Health!A1:G",
+    range: "Apple Health!A1:H",
     valueRenderOption: "UNFORMATTED_VALUE",
     dateTimeRenderOption: "FORMATTED_STRING",
   });
@@ -1437,6 +1434,7 @@ export async function appendAppleHealth(
     row.restingCalories ?? "",
     row.source,
     row.syncedAt,
+    row.waterMl ?? "",
   ];
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i] || [];
@@ -1444,11 +1442,19 @@ export async function appendAppleHealth(
     const src = String(r[5] ?? "");
     if (d === row.date && src === row.source) {
       const sheetRow = i + 1;
+      // Preserve the prior water reading when this payload doesn't
+      // include one (Auto Export sometimes posts mid-day before water
+      // logging is up to date).
+      const existing = r as (string | number)[];
+      const merged = [...values];
+      if (row.waterMl === undefined && existing[7] !== undefined && existing[7] !== "") {
+        merged[7] = existing[7];
+      }
       await client.spreadsheets.values.update({
         spreadsheetId: id,
-        range: `Apple Health!A${sheetRow}:G${sheetRow}`,
+        range: `Apple Health!A${sheetRow}:H${sheetRow}`,
         valueInputOption: "USER_ENTERED",
-        requestBody: { values: [values] },
+        requestBody: { values: [merged] },
       });
       return { action: "updated", rowIndex: sheetRow };
     }
@@ -1478,7 +1484,7 @@ export async function getRecentAppleHealth(days = 7): Promise<AppleHealthRow[]> 
     const client = sheetsClient();
     const res = await client.spreadsheets.values.get({
       spreadsheetId: sheetId(),
-      range: "Apple Health!A1:G",
+      range: "Apple Health!A1:H",
       valueRenderOption: "UNFORMATTED_VALUE",
       dateTimeRenderOption: "FORMATTED_STRING",
     });
@@ -1501,6 +1507,7 @@ export async function getRecentAppleHealth(days = 7): Promise<AppleHealthRow[]> 
         restingCalories: r[4] === "" || r[4] === undefined ? undefined : Number(r[4]) || 0,
         source: String(r[5] ?? ""),
         syncedAt: String(r[6] ?? ""),
+        waterMl: r[7] === "" || r[7] === undefined ? undefined : Number(r[7]) || 0,
       });
     }
     out.sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -2914,4 +2921,66 @@ export async function getMostRecentSyncTriggerForIp(
     console.error("[sheets] getMostRecentSyncTriggerForIp:", msg);
     return null;
   }
+}
+
+// ---------- Calendar Events snapshot ----------
+
+export type CalendarSnapshotRow = {
+  eventId: string;
+  etag: string;
+  summary: string;
+  startISO: string;
+  firstSeenAt: string;
+  notifiedAt: string;
+};
+
+export async function readCalendarSnapshot(): Promise<CalendarSnapshotRow[]> {
+  const rows = await readTab("Calendar Events");
+  if (!rows || rows.length < 2) return [];
+  const out: CalendarSnapshotRow[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || !r[0]) continue;
+    out.push({
+      eventId: String(r[0] || ""),
+      etag: String(r[1] || ""),
+      summary: String(r[2] || ""),
+      startISO: String(r[3] || ""),
+      firstSeenAt: String(r[4] || ""),
+      notifiedAt: String(r[5] || ""),
+    });
+  }
+  return out;
+}
+
+/**
+ * Replace the Calendar Events tab body with `rows`. Header row is left
+ * intact. Caller is responsible for preserving firstSeenAt / notifiedAt
+ * across rewrites by merging against the prior snapshot.
+ */
+export async function writeCalendarSnapshot(
+  rows: CalendarSnapshotRow[]
+): Promise<void> {
+  await ensureTab("Calendar Events");
+  const client = sheetsClient();
+  const id = sheetId();
+  await client.spreadsheets.values.clear({
+    spreadsheetId: id,
+    range: "Calendar Events!A2:F",
+  });
+  if (rows.length === 0) return;
+  const values = rows.map((r) => [
+    r.eventId,
+    r.etag,
+    r.summary,
+    r.startISO,
+    r.firstSeenAt,
+    r.notifiedAt,
+  ]);
+  await client.spreadsheets.values.update({
+    spreadsheetId: id,
+    range: `Calendar Events!A2:F${rows.length + 1}`,
+    valueInputOption: "RAW",
+    requestBody: { values },
+  });
 }
