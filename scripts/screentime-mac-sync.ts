@@ -93,7 +93,11 @@ SELECT
   DATE(ZSTARTDATE + 978307200, 'unixepoch', 'localtime') AS day_local,
   ZVALUESTRING AS label,
   '' AS category,
-  CAST(SUM(ZENDDATE - ZSTARTDATE) / 60.0 AS INTEGER) AS minutes
+  /* Ceiling rather than floor: any positive duration rounds up to at
+     least 1 minute, so a 1-second Obsidian focus shows as 1m, not 0.
+     SQLite has no CEIL in the default macOS build, so add ~one-minute
+     minus an epsilon and let CAST-to-INTEGER truncate. */
+  CAST((SUM(ZENDDATE - ZSTARTDATE) + 59.999) / 60.0 AS INTEGER) AS minutes
 FROM ZOBJECT
 WHERE ZSTREAMNAME = '/app/usage'
   AND ZVALUESTRING IS NOT NULL
