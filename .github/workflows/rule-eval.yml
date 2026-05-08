@@ -1,0 +1,50 @@
+# Daily rule-eval cron. Walks Harley Meter rules and appends
+# Punishments rows for any failed days/weeks that haven't been fined yet.
+#
+# Fires at 16:00 UTC = 02:00 AEST winter / 03:00 AEDT summer. The endpoint
+# is idempotent on (ruleId, periodStart) so DST drift doesn't matter — at
+# worst the eval lands a couple of hours later.
+#
+# Daily rules look back 7 days each run, so missing a day doesn't lose
+# fines. Weekly rules only fire on Mondays.
+
+name: Rule eval (daily)
+
+on:
+  schedule:
+    - cron: '0 16 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Skip writes; return planned fines only'
+        type: boolean
+        default: false
+
+jobs:
+  fire:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit rule-eval endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DASHBOARD_BASE_URL: ${{ secrets.DASHBOARD_BASE_URL }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          url="$DASHBOARD_BASE_URL/api/cron/rule-eval"
+          if [ "$DRY_RUN" = "true" ]; then
+            url="$url?dry_run=1"
+          fi
+
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$url")
+
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "Status: $status"
+          echo "Body: $body"
+
+          if [ "$status" -ne 200 ]; then
+            exit 1
+          fi

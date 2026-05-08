@@ -10,6 +10,15 @@
  *
  * Idempotent: re-running only adds missing tabs / does not overwrite data.
  */
+// Force IPv4 on the global HTTPS agent. On at least one Mac+ISP combo,
+// Node's dual-stack happy-eyeballs sticks on IPv6 to googleapis.com and
+// times out instead of falling back. `dns-result-order=ipv4first` alone
+// doesn't fix it; this does. Local-script-only — production runs on
+// Vercel's network where this isn't needed.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const httpsMod = require("node:https") as typeof import("node:https");
+httpsMod.globalAgent = new httpsMod.Agent({ family: 4, keepAlive: true });
+
 // Custom .env.local loader. The default `dotenv` package (and node's
 // --env-file flag) parses the GOOGLE_SERVICE_ACCOUNT_JSON value
 // incorrectly because Vercel CLI writes the JSON with unescaped inner
@@ -68,10 +77,13 @@ async function main() {
 
   if (created.includes("Punishments")) {
     console.log("Seeding Punishments…");
+    // DEMO-prefixed reasons make these obviously seed data so anyone
+    // reviewing the live OWED HARLEY tile knows to delete them. 6th
+    // column is the rule_id (empty → manual fine).
     await appendRows("Punishments", [
-      [dayBefore, 10, "Late wake (06:18)", "Coach", "no"],
-      [yest, 45, "Phone over 90min", "Coach", "no"],
-      [today, 30, "Missed writing target", "Coach", "no"],
+      [dayBefore, 10, "DEMO — Late wake (06:18)", "Coach", "no", ""],
+      [yest, 45, "DEMO — Phone over 90min", "Coach", "no", ""],
+      [today, 30, "DEMO — Missed writing target", "Coach", "no", ""],
     ]);
   }
 
