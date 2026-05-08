@@ -25,6 +25,7 @@ import { verifyJWT } from "@/lib/jwt";
 import { runWhoopSync } from "@/lib/whoop-sync";
 import { sendEmail } from "@/lib/email";
 import { appendSyncTrigger } from "@/lib/sheets";
+import { sendDanTelegram, formatSyncManualAsksMessage } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -132,7 +133,19 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResponse 
     console.warn("[sync/trigger] DAN_EMAIL not set — skipping notification");
   }
 
-  // 4. Audit row.
+  // 4. Telegram push to Dan (so the manual-asks list reaches his
+  // phone, not just Harley's screen). Failure here doesn't affect
+  // the sync result — sendDanTelegram returns rather than throws.
+  await sendDanTelegram(
+    formatSyncManualAsksMessage({
+      source: "harley",
+      whoop,
+      whoopDetail,
+      manualAsks: [...manualAsks],
+    })
+  );
+
+  // 5. Audit row.
   await appendSyncTrigger({
     ip,
     whoop: whoop + (whoopDetail ? ` (${whoopDetail})` : ""),
@@ -141,7 +154,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResponse 
     source: "harley",
   });
 
-  // 5. Response.
+  // 6. Response.
   return NextResponse.json({
     ok: whoop === "ok",
     whoop,
