@@ -3,7 +3,8 @@
  *
  * Receives daily screen-time aggregates from:
  *   - iOS Shortcut Personal Automation (source: "ios_shortcut")
- *   - Mac launchd RemoteManagement.sqlite poller (source: "mac_launchd")
+ *   - Mac launchd knowledgeC.db poller (source: "mac_launchd")
+ *   - Mac UI scrape of iPhone activity (source: "mac_ui_iphone")
  *
  * Auth: shared secret in SCREENTIME_INGEST_SECRET, sent as
  *   Authorization: Bearer <secret>
@@ -47,7 +48,7 @@ type IngestPayload = {
   items?: unknown;
 };
 
-const ALLOWED_SOURCES = new Set(["ios_shortcut", "mac_launchd"]);
+const ALLOWED_SOURCES = new Set(["ios_shortcut", "mac_launchd", "mac_ui_iphone"]);
 const MAX_ITEMS = 200;
 const MAX_LABEL_LEN = 200;
 const MAX_MINUTES = 24 * 60;
