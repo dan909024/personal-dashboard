@@ -167,9 +167,9 @@ function mondayOfThisWeekSydney(): string {
 // ---------- Writing summary ----------
 //
 // "Writing" = Obsidian foreground time (md.obsidian, same bundle id on
-// Mac and iOS). Window is Mon–Sun in Australia/Sydney so the dashboard
-// week resets every Monday. Reuses the same row-cleaning pipeline as
-// PHONE so cross-device Share-Across-Devices doesn't double-count.
+// Mac and iOS). Window is Mon–Sun in Australia/Sydney so the tile
+// resets every Monday. Reuses the same row-cleaning pipeline as PHONE
+// so cross-device Share-Across-Devices doesn't double-count.
 
 const WRITING_BUNDLE_IDS = new Set<string>(["md.obsidian"]);
 
@@ -685,6 +685,7 @@ function buildActivityTooltip(a: HarleyActivity): string {
 function NoData() {
   return <p className="text-xs text-zinc-500 italic">no data yet</p>;
 }
+
 
 function formatStepsRoutine(ah: DashboardAppleHealth | null): string {
   if (!ah || (!ah.todaySteps && !ah.weekStepsAvg)) return "—";
