@@ -236,10 +236,16 @@ export default async function Dashboard({
         }}
       />
 
-      {/* Coach panel — fixed right strip on lg+, fades into the page on its left edge. */}
+      {/* Coach panel — fixed right strip on md+, fades into the page on its left edge.
+          On phones it's a smaller bottom-right portrait so she's still visible. */}
       <div
         aria-hidden
-        className="hidden lg:block fixed top-0 right-0 bottom-0 w-[320px] bg-cover bg-center pointer-events-none z-0"
+        className="md:hidden fixed bottom-3 right-3 w-28 h-36 rounded-md bg-cover bg-center pointer-events-none z-0 ring-1 ring-white/20 shadow-lg"
+        style={{ backgroundImage: "url('/coach.jpg')" }}
+      />
+      <div
+        aria-hidden
+        className="hidden md:block fixed top-0 right-0 bottom-0 w-[260px] lg:w-[320px] bg-cover bg-center pointer-events-none z-0"
         style={{ backgroundImage: "url('/coach.jpg')" }}
       >
         <div
@@ -251,7 +257,7 @@ export default async function Dashboard({
         />
       </div>
 
-      <div className="relative z-10 lg:mr-[320px]">
+      <div className="relative z-10 md:mr-[260px] lg:mr-[320px]">
         {/* Setup banner if env not configured */}
         {!configured && (
           <div className="w-full bg-amber-900/80 backdrop-blur-sm border-b border-amber-700 px-4 py-2 text-xs text-amber-100">
