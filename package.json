@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "screentime:ui": "tsx scripts/screentime-ui-sync.ts"
   },
   "dependencies": {
     "@vercel/blob": "^2.3.3",

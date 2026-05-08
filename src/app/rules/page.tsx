@@ -168,9 +168,22 @@ export default function RulesPage() {
             <li className="border border-[#222] bg-[#0f0f0f]/60 px-4 py-3 rounded">
               <p className="font-semibold text-white">Punishments tab (Sheet)</p>
               <p className="text-zinc-400 mt-1">
-                Per-incident fines logged manually or by future rule-eval crons.
-                Each row: <code className="bg-black/40 px-1">date / amount / reason / set by / paid?</code>.
-                Unpaid rows accumulate into the OWED HARLEY tile.
+                Per-incident fines. Each row:{" "}
+                <code className="bg-black/40 px-1">date / amount / reason / set by / paid? / rule</code>.
+                Unpaid rows accumulate into the OWED HARLEY tile. The OWED HARLEY
+                tooltip uses <strong>rule</strong> (a HarleyRuleId from{" "}
+                <code className="bg-black/40 px-1">src/lib/harley-rules.ts</code>) to show
+                provenance — empty rule = manual fine.
+              </p>
+            </li>
+            <li className="border border-[#222] bg-[#0f0f0f]/60 px-4 py-3 rounded">
+              <p className="font-semibold text-white">Telegram <code className="bg-black/40 px-1">/fine</code> command</p>
+              <p className="text-zinc-400 mt-1">
+                Harley DMs <code className="bg-black/40 px-1">/fine 45 phone over 90min</code>{" "}
+                to the bot. The webhook appends a Punishments row with{" "}
+                <em>set by</em> = sender&rsquo;s name + &ldquo;(Telegram)&rdquo; and empty rule.
+                Restricted to authorized chat IDs (HARLEY_TELEGRAM_CHAT_ID,
+                DAN_TELEGRAM_CHAT_ID, or TRIPWIRE fallback).
               </p>
             </li>
             <li className="border border-[#222] bg-[#0f0f0f]/60 px-4 py-3 rounded">
@@ -178,7 +191,30 @@ export default function RulesPage() {
               <p className="text-zinc-400 mt-1">
                 Automatic <strong>$1,000</strong> appended on the 1st of each month by{" "}
                 <code className="bg-black/40 px-1">/api/cron/monthly-fine</code>.
-                Idempotent — re-running the cron the same month is a no-op.
+                Idempotent — re-running the cron the same month is a no-op. Empty rule.
+              </p>
+            </li>
+            <li className="border border-[#222] bg-[#0f0f0f]/60 px-4 py-3 rounded">
+              <p className="font-semibold text-white">Auto rule-eval cron</p>
+              <p className="text-zinc-400 mt-1">
+                Daily at 02:00 Sydney via{" "}
+                <code className="bg-black/40 px-1">/api/cron/rule-eval</code>.
+                Reads Harley Meter inputs, appends Punishments rows for failed
+                periods. Idempotent on (rule_id, period_start) — same period
+                never fined twice. Per-rule amounts in{" "}
+                <code className="bg-black/40 px-1">src/lib/rule-eval.ts</code>:
+              </p>
+              <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-zinc-400">
+                <li>wake — $10 / failed day</li>
+                <li>bed — $10 / failed day</li>
+                <li>gym — $25 / failed week</li>
+                <li>steps — $20 / failed week</li>
+                <li>water — $20 / failed week</li>
+                <li>tasks — $25 / failed week</li>
+              </ul>
+              <p className="text-zinc-500 mt-2 text-xs">
+                Daily rules look back 7 days each run (catch-up safe). Weekly
+                rules only evaluate on Mondays for the previous Mon–Sun.
               </p>
             </li>
           </ul>

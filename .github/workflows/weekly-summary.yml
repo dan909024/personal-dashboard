@@ -44,7 +44,11 @@ jobs:
           fi
 
       - name: Ping Healthchecks.io (tripwire — Harley is alerted if this workflow stops running)
-        if: success()
+        # Paused-until-launch: ping unconditionally so Healthchecks.io stays
+        # green and stops emailing Harley while we're still pre-launch.
+        # Re-gate to `if: success()` once the site launches and the Sunday
+        # tripwire is meaningful to Harley.
+        if: always()
         env:
           HEALTHCHECK_WEEKLY_URL: ${{ secrets.HEALTHCHECK_WEEKLY_URL }}
         run: |

@@ -84,8 +84,11 @@ export default async function ScreentimePage() {
             <p className="text-sm text-zinc-400">No screen time data in the last 7 days.</p>
             <p className="text-xs text-zinc-500 mt-2">
               Sources: <code className="bg-black/30 px-1">ios_shortcut</code>{" "}
-              (iPhone Personal Automation) and{" "}
-              <code className="bg-black/30 px-1">mac_launchd</code> (Mac sync).
+              (iPhone Personal Automation),{" "}
+              <code className="bg-black/30 px-1">mac_launchd</code> (Mac sync),
+              and{" "}
+              <code className="bg-black/30 px-1">mac_ui_iphone</code> (Mac UI
+              scrape of iPhone view).
               See <code className="bg-black/30 px-1">SETUP-SCREENTIME.md</code>.
             </p>
           </div>
@@ -207,7 +210,11 @@ function DayCard({ group }: { group: DayGroup }) {
           {group.rows.map((r, i) => {
             const capped = r.minutes >= SCREENTIME_CAP_MINUTES;
             const display = displayAppName(r.label);
-            const sourceShort = r.source === "ios_shortcut" ? "iOS" : r.source === "mac_launchd" ? "Mac" : r.source;
+            const sourceShort =
+              r.source === "ios_shortcut" ? "iOS"
+              : r.source === "mac_launchd" ? "Mac"
+              : r.source === "mac_ui_iphone" ? "iPhone (UI)"
+              : r.source;
             return (
               <tr
                 key={`${r.source}-${r.label}-${i}`}
