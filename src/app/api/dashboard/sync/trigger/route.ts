@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { runWhoopSync } from "@/lib/whoop-sync";
 import { appendSyncTrigger, getMostRecentSyncTriggerForIp } from "@/lib/sheets";
+import { sendDanTelegram, formatSyncManualAsksMessage } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -107,6 +108,19 @@ export async function POST(
     emailSent: false,
     source: "dashboard",
   });
+
+  // Push the manual-asks list to Dan's Telegram so he sees the
+  // reminder on his phone, not just inline. Failure here doesn't
+  // affect the sync result — sendDanTelegram returns a result
+  // rather than throwing.
+  await sendDanTelegram(
+    formatSyncManualAsksMessage({
+      source: "dashboard",
+      whoop,
+      whoopDetail,
+      manualAsks,
+    })
+  );
 
   // Bust the page cache so the next render reflects the freshly
   // upserted rows. Per-tile readers use unstable_cache with their
