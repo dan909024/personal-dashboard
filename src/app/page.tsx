@@ -24,6 +24,7 @@ import {
   dedupeAppsPreferMac,
   displayAppName,
   dropCategoryRows,
+  dropMacNonBundleIdLabels,
   fmtPhoneMinutes,
   phoneBadge,
   SCREENTIME_CAP_MINUTES,
@@ -88,7 +89,9 @@ function summarizeScreentime(rows: ScreenTimeRow[]): PhoneTileSummary {
   // for the same period — summing both double-counts), then for each
   // (date, app) prefer mac_launchd over ios_shortcut to collapse the
   // cross-source duplicate that "Share Across Devices" produces.
-  const cleaned = dedupeAppsPreferMac(dropCategoryRows(rows));
+  const cleaned = dedupeAppsPreferMac(
+    dropCategoryRows(dropMacNonBundleIdLabels(rows))
+  );
   const today = cleaned.filter((r) => r.date === todayDate);
   const todayApps = aggregateTopApps(today, 3);
   const fallbackApps = aggregateTopApps(cleaned, 3);

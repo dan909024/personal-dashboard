@@ -98,6 +98,27 @@ export function dropCategoryRows(rows: ScreenTimeRow[]): ScreenTimeRow[] {
 }
 
 /**
+ * For mac_launchd rows: drop labels that don't look like real bundle ids.
+ * macOS Screen Time accumulates category-aggregate residue in knowledgeC.db
+ * (entries like "Dating Apps", or a bare "Instagram") from stale
+ * cross-device sync. Bundle ids always contain a dot and never contain
+ * spaces, so a simple shape check excludes the residue without us
+ * maintaining a deny-list. Applied to the dashboard tile but NOT the
+ * /screentime breakdown page (which intentionally shows raw rows for
+ * diagnostic purposes).
+ *
+ * iOS Shortcut rows are left alone — they use friendly names like
+ * "Telegram" or "Social" deliberately, so the bundle-id shape check
+ * would over-filter them.
+ */
+export function dropMacNonBundleIdLabels(rows: ScreenTimeRow[]): ScreenTimeRow[] {
+  return rows.filter((r) => {
+    if (r.source !== "mac_launchd") return true;
+    return r.label.includes(".") && !r.label.includes(" ");
+  });
+}
+
+/**
  * For each (date, app) collapse multiple sources to one row, preferring
  * mac_launchd over ios_shortcut. Mac surfaces both Mac usage and iOS
  * usage (via "Share Across Devices"), so its row tends to be the

@@ -98,6 +98,13 @@ FROM ZOBJECT
 WHERE ZSTREAMNAME = '/app/usage'
   AND ZVALUESTRING IS NOT NULL
   AND ZVALUESTRING != ''
+  -- Bundle ids only: must contain a dot, must not contain spaces. This
+  -- drops macOS Screen Time category-aggregate residue (e.g. "Dating
+  -- Apps", or a bare "Instagram" with no qualifier) that knowledgeC.db
+  -- accumulates from stale cross-device sync. Real bundle ids look
+  -- like "com.burbn.instagram" or "com.apple.Safari".
+  AND ZVALUESTRING LIKE '%.%'
+  AND instr(ZVALUESTRING, ' ') = 0
   AND ZSTARTDATE >= (strftime('%s', 'now', '-${LOOKBACK_DAYS + 1} days') - 978307200)
 GROUP BY day_local, label
 HAVING minutes > 0
