@@ -36,6 +36,8 @@ const STEPS_CAP = 100000;
 const CAL_CAP = 20000;
 const WORKOUT_DURATION_CAP_MIN = 24 * 60;
 const WATER_ML_CAP = 15000;
+const PROTEIN_G_CAP = 800;
+const CALORIES_CONSUMED_CAP = 15000;
 
 function bad(msg: string, status = 400) {
   // 400s are usually the Shortcut sending the wrong shape (date format, missing
@@ -53,6 +55,59 @@ function asNumber(v: unknown, fallback: number | undefined = undefined): number 
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Sum a list of HealthKit-style samples into a single number. Tolerates
+ * the shapes the iOS Shortcuts app might serialize when the user binds
+ * a "Filter Health Samples" output directly into a JSON Array/Text field
+ * (because their Shortcuts version is missing the Statistics action):
+ *   - [47, 32, 11]                   → array of numbers
+ *   - [{quantity: 47}, ...]          → records with .quantity / .value / .count
+ *   - "47 count, 32 count"           → comma-separated text with units stripped
+ *   - "47.5"                          → single number as text
+ * Returns undefined when the input isn't a usable list.
+ */
+function sumSamples(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === "string") {
+    const parts = raw.split(/[,\s]+/).filter(Boolean);
+    if (parts.length === 0) return undefined;
+    let total = 0; let any = false;
+    for (const p of parts) {
+      const n = Number(p);
+      if (Number.isFinite(n)) { total += n; any = true; }
+    }
+    return any ? total : undefined;
+  }
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  let total = 0; let any = false;
+  for (const item of raw) {
+    const n = sampleQuantity(item);
+    if (n !== undefined) { total += n; any = true; }
+  }
+  return any ? total : undefined;
+}
+
+function sampleQuantity(item: unknown): number | undefined {
+  if (typeof item === "number" && Number.isFinite(item)) return item;
+  if (typeof item === "string") {
+    const m = item.match(/^[\s]*(-?\d+(?:\.\d+)?)/);
+    if (m) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n)) return n;
+    }
+    return undefined;
+  }
+  if (item && typeof item === "object") {
+    const o = item as Record<string, unknown>;
+    for (const key of ["quantity", "value", "count", "amount"]) {
+      const v = o[key];
+      const n = typeof v === "number" ? v : Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return undefined;
 }
 
 function normalizeWorkouts(raw: unknown): AppleHealthWorkout[] {
@@ -110,11 +165,15 @@ export async function POST(req: NextRequest) {
   const source = String(b.source ?? "").trim();
   if (!source) return bad("source is required");
 
-  const stepsRaw = asNumber(b.steps, 0) ?? 0;
+  // Accept each metric as EITHER a single pre-summed number OR a raw
+  // list of HealthKit samples that we sum server-side. The list path is
+  // for iOS Shortcuts versions where "Statistics on Health Samples" is
+  // missing — the user binds the Filter output directly to *Samples.
+  const stepsRaw = asNumber(b.steps) ?? sumSamples(b.stepSamples) ?? 0;
   const steps = clamp(Math.round(stepsRaw), 0, STEPS_CAP);
 
-  const activeCalRaw = asNumber(b.activeCalories);
-  const restingCalRaw = asNumber(b.restingCalories);
+  const activeCalRaw = asNumber(b.activeCalories) ?? sumSamples(b.activeCalorieSamples);
+  const restingCalRaw = asNumber(b.restingCalories) ?? sumSamples(b.restingCalorieSamples);
   const activeCalories =
     activeCalRaw !== undefined ? clamp(Math.round(activeCalRaw), 0, CAL_CAP) : undefined;
   const restingCalories =
@@ -122,16 +181,32 @@ export async function POST(req: NextRequest) {
 
   const workouts = normalizeWorkouts(b.workouts);
 
-  // Accept water either in milliliters ("water": 2500) or liters
-  // ("water": 2.5). Anything < 50 is treated as liters (no plausible
-  // adult drinks <50ml in a day) and converted up. Anything bigger is
-  // assumed already in ml.
-  const waterRaw = asNumber(b.water);
+  // Water in milliliters (or liters auto-detected if <50).
+  const waterRaw = asNumber(b.water) ?? sumSamples(b.waterSamples);
   let waterMl: number | undefined;
   if (waterRaw !== undefined && waterRaw > 0) {
     const asMl = waterRaw < 50 ? waterRaw * 1000 : waterRaw;
     waterMl = clamp(Math.round(asMl), 0, WATER_ML_CAP);
   }
+
+  // Protein in grams (HealthKit dietaryProtein).
+  const proteinRaw = asNumber(b.protein) ?? sumSamples(b.proteinSamples);
+  const proteinG =
+    proteinRaw !== undefined && proteinRaw > 0
+      ? clamp(Math.round(proteinRaw), 0, PROTEIN_G_CAP)
+      : undefined;
+
+  // Calories consumed in kcal (HealthKit dietaryEnergyConsumed).
+  // Distinct from activeCalories (energy burned, ring 2).
+  const consumedRaw =
+    asNumber(b.caloriesConsumed) ??
+    asNumber(b.dietaryEnergy) ??
+    sumSamples(b.caloriesConsumedSamples) ??
+    sumSamples(b.dietaryEnergySamples);
+  const caloriesConsumed =
+    consumedRaw !== undefined && consumedRaw > 0
+      ? clamp(Math.round(consumedRaw), 0, CALORIES_CONSUMED_CAP)
+      : undefined;
 
   const row: AppleHealthRow = {
     date,
@@ -142,6 +217,8 @@ export async function POST(req: NextRequest) {
     source,
     syncedAt: new Date().toISOString(),
     ...(waterMl !== undefined ? { waterMl } : {}),
+    ...(proteinG !== undefined ? { proteinG } : {}),
+    ...(caloriesConsumed !== undefined ? { caloriesConsumed } : {}),
   };
 
   try {
