@@ -23,6 +23,7 @@ import {
 import { getHarleyMeter } from "@/lib/harley-meter";
 import { getHarleyTaskWindow, isCalendarConfigured } from "@/lib/calendar";
 import { getDashboardWeakness } from "@/lib/weakness";
+import { getLatestCoachPhotoUrl, COACH_PHOTO_FALLBACK } from "@/lib/coach-photo";
 import { WeaknessAltarTile } from "@/components/tiles/WeaknessAltarTile";
 import { HarleyCalendarTile } from "@/components/tiles/HarleyCalendarTile";
 import { SyncButton } from "@/components/SyncButton";
@@ -167,6 +168,7 @@ export default async function Dashboard({
     weakness,
     transactions,
     nutrition,
+    coachPhotoUrl,
   ] = await Promise.all([
     configured ? getOpenTasks(3) : Promise.resolve([]),
     configured ? getHarleyBalance() : Promise.resolve(null as HarleyBalance | null),
@@ -191,6 +193,7 @@ export default async function Dashboard({
     configured
       ? getDashboardNutrition()
       : Promise.resolve(null as DashboardNutrition | null),
+    getLatestCoachPhotoUrl(),
   ]);
 
   const calendarConfigured = isCalendarConfigured();
@@ -295,7 +298,12 @@ export default async function Dashboard({
 
         {/* Dashboard grid */}
         <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-          {weakness && <WeaknessAltarTile data={weakness} />}
+          {weakness && (
+            <WeaknessAltarTile
+              data={weakness}
+              coachPhotoUrl={coachPhotoUrl ?? COACH_PHOTO_FALLBACK}
+            />
+          )}
 
           {/* Row 1 */}
           <Tile title="WHOOP">
