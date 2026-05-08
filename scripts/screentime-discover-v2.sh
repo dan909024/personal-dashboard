@@ -129,5 +129,63 @@ find "$HOME/Library" -type f \( -name "*.db" -o -name "*.sqlite" \) -size +50k 2
 done
 echo "(scan complete)"
 
+# ---------- 5. RMAdminStore probe (the actual answer) ----------
+#
+# ScreenTimeAgent (Apple's own daemon) has these two sqlite DBs open
+# right now per `lsof` output above. The "-Cloud" one is where Share
+# Across Devices iOS data lands; the "-Local" one is Mac-local. Both
+# under the daemon's per-user sandboxed temp folder, readable with FDA.
+
+section "5. RMAdminStore probe — schema + row counts (no usage values)"
+RM_DIR=$(lsof -p $(pgrep ScreenTimeAgent | head -1) 2>/dev/null \
+  | grep -oE '/private/var/folders/[^ ]*/com\.apple\.ScreenTimeAgent/Store' \
+  | head -1)
+if [ -z "$RM_DIR" ]; then
+  echo "Could not locate ScreenTimeAgent's Store directory via lsof."
+else
+  echo "Store dir: $RM_DIR"
+  for tag in Cloud Local; do
+    src="$RM_DIR/RMAdminStore-$tag.sqlite"
+    if [ ! -f "$src" ]; then
+      echo "  (missing: $src)"
+      continue
+    fi
+    dst="$TMP_DIR/rm_$tag.db"
+    cp "$src" "$dst" 2>/dev/null || { echo "  cp failed for $tag (FDA?)"; continue; }
+    [ -f "$src-wal" ] && cp "$src-wal" "$dst-wal" 2>/dev/null
+    [ -f "$src-shm" ] && cp "$src-shm" "$dst-shm" 2>/dev/null
+
+    echo
+    echo "--- RMAdminStore-$tag.sqlite ---"
+    echo "size: $(stat -f '%z' "$src" 2>/dev/null) bytes"
+    echo "tables:"
+    sqlite3 "$dst" ".tables" 2>&1 | tr ' ' '\n' | grep -v '^$' | sed 's/^/  /'
+    echo "row counts:"
+    sqlite3 "$dst" ".tables" 2>/dev/null | tr ' ' '\n' | grep -v '^$' | while read t; do
+      c=$(sqlite3 "$dst" "SELECT COUNT(*) FROM \"$t\"" 2>/dev/null)
+      printf "  %-44s %s\n" "$t" "$c"
+    done
+    echo "schema (CREATE TABLE only):"
+    sqlite3 "$dst" ".schema" 2>/dev/null | grep -E '^CREATE TABLE' | sed 's/^/  /'
+    echo "tables matching usage / app / cat / bundle / time / activity:"
+    sqlite3 "$dst" "SELECT name FROM sqlite_master WHERE type='table' AND (LOWER(name) LIKE '%usage%' OR LOWER(name) LIKE '%app%' OR LOWER(name) LIKE '%category%' OR LOWER(name) LIKE '%bundle%' OR LOWER(name) LIKE '%time%' OR LOWER(name) LIKE '%activity%' OR LOWER(name) LIKE '%counter%');" 2>/dev/null | sed 's/^/  /'
+  done
+fi
+
+section "6. RMAdminStore: top 5 sample rows from any table whose name suggests usage"
+for tag in Cloud Local; do
+  dst="$TMP_DIR/rm_$tag.db"
+  [ -f "$dst" ] || continue
+  candidates=$(sqlite3 "$dst" "SELECT name FROM sqlite_master WHERE type='table' AND (LOWER(name) LIKE '%usage%' OR LOWER(name) LIKE '%counter%' OR LOWER(name) LIKE '%activity%' OR LOWER(name) LIKE '%category%' OR LOWER(name) LIKE '%applimit%' OR LOWER(name) LIKE '%bundle%');" 2>/dev/null)
+  for tbl in $candidates; do
+    echo
+    echo "--- $tag :: $tbl ---"
+    sqlite3 -header -column "$dst" "SELECT * FROM \"$tbl\" LIMIT 5;" 2>&1 | head -30
+  done
+done
+
 echo
 echo "==== Discovery v2 done. ===="
+echo "Paste the output back. Sample rows are limited to 5 — redact any"
+echo "individual values you don't want to share. We only need the table"
+echo "shape to write the new collector."
