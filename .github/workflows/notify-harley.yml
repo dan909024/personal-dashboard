@@ -1,4 +1,15 @@
-name: Notify Harley on push to main
+# Tamper-evident tripwire. Fires ONLY when src/lib/harley-auth.ts
+# changes on a push to main. Posts to /api/notifications/auth-changed
+# which fans out via Telegram (no email). The dashboard owns the bot
+# token; the workflow only needs CRON_SECRET + DASHBOARD_BASE_URL.
+#
+# Earlier iterations of this workflow emailed Harley on EVERY push to
+# demonstrate the wiring; that produced too much noise (and started
+# erroring with Resend 400 once HARLEY_EMAIL was cleared anyway).
+# Now: silent on every normal push, alarms only when the auth identity
+# file actually changes.
+
+name: Notify Harley on auth-config change
 
 on:
   push:
@@ -24,50 +35,59 @@ jobs:
           # github.event.before is "0000…" on the first push of a branch.
           # In that case skip the diff and assume no change.
           if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
-            echo "subject_prefix=" >> "$GITHUB_OUTPUT"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" \
               | grep -qx 'src/lib/harley-auth.ts'; then
-            echo "subject_prefix=AUTH CONFIG CHANGED — " >> "$GITHUB_OUTPUT"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           else
-            echo "subject_prefix=" >> "$GITHUB_OUTPUT"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Send email via Resend
+      - name: Skip when auth-config unchanged
+        if: steps.auth_check.outputs.changed != 'true'
+        run: |
+          echo "src/lib/harley-auth.ts not touched in this push — skipping notification."
+
+      - name: Post auth-change notification to dashboard
+        if: steps.auth_check.outputs.changed == 'true'
         env:
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          HARLEY_EMAIL: ${{ secrets.HARLEY_EMAIL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DASHBOARD_BASE_URL: ${{ secrets.DASHBOARD_BASE_URL }}
           COMMIT_SHA: ${{ github.sha }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           COMMIT_AUTHOR: ${{ github.event.head_commit.author.name }}
           COMMIT_URL: ${{ github.event.head_commit.url }}
-          SUBJECT_PREFIX: ${{ steps.auth_check.outputs.subject_prefix }}
         run: |
-          if [ -z "$RESEND_API_KEY" ] || [ -z "$HARLEY_EMAIL" ]; then
-            echo "RESEND_API_KEY or HARLEY_EMAIL repo secret not set — skipping."
-            exit 0
+          if [ -z "$CRON_SECRET" ] || [ -z "$DASHBOARD_BASE_URL" ]; then
+            echo "CRON_SECRET or DASHBOARD_BASE_URL repo secret not set — skipping."
+            exit 1
           fi
           short_sha="${COMMIT_SHA:0:8}"
-          subject="${SUBJECT_PREFIX}Dan deployed to personal-dashboard"
-          # Build the JSON via jq so commit messages with quotes / newlines
-          # / backslashes don't break the request.
           payload=$(jq -n \
-            --arg to "$HARLEY_EMAIL" \
-            --arg author "$COMMIT_AUTHOR" \
+            --arg sha "$COMMIT_SHA" \
+            --arg short "$short_sha" \
             --arg msg "$COMMIT_MSG" \
+            --arg author "$COMMIT_AUTHOR" \
             --arg url "$COMMIT_URL" \
-            --arg sha "$short_sha" \
-            --arg subject "$subject" \
             '{
-              from: "Personal Dashboard <onboarding@resend.dev>",
-              to: [$to],
-              subject: $subject,
-              html: ("<p><strong>Author:</strong> " + ($author | @html) + "</p>"
-                  + "<p><strong>Message:</strong> " + ($msg | @html) + "</p>"
-                  + "<p><strong>Commit:</strong> <a href=\"" + ($url | @html) + "\">" + $sha + "</a></p>")
+              commit_sha: $sha,
+              commit_short_sha: $short,
+              commit_msg: $msg,
+              commit_author: $author,
+              commit_url: $url
             }')
-          curl -fsS -X POST https://api.resend.com/emails \
-            -H "Authorization: Bearer $RESEND_API_KEY" \
+          response=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
             -H "Content-Type: application/json" \
-            -d "$payload"
+            -d "$payload" \
+            "$DASHBOARD_BASE_URL/api/notifications/auth-changed")
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "Status: $status"
+          echo "Body: $body"
+          if [ "$status" -ne 200 ]; then
+            exit 1
+          fi
