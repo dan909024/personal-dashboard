@@ -2421,6 +2421,13 @@ export type WeaknessSettings = {
   worship_weight_per_minute: number;
   /** Score detracted per minute of self-help time logged. */
   self_help_weight_per_minute: number;
+  /**
+   * Flat score deduction applied on the day of each lapsed orgasm. Default
+   * is 40% of the start of the final phase (2151) so anyone in the first
+   * 40% of the curve effectively resets to 0; high-score days lose a
+   * meaningful chunk but stay weak. Cumulative score still floors at 0.
+   */
+  slip_penalty_points: number;
   phase_thresholds: Record<string, [number, number, string]>;
 };
 
@@ -2455,6 +2462,7 @@ export const DEFAULT_WEAKNESS_SETTINGS: WeaknessSettings = {
   calorie_burn_per_unit_above: 0.2,
   worship_weight_per_minute: 5,
   self_help_weight_per_minute: 3,
+  slip_penalty_points: 860,
   phase_thresholds: DEFAULT_PHASE_THRESHOLDS,
 };
 
@@ -2476,6 +2484,7 @@ export const SETTINGS_SEED_ROWS: (string | number)[][] = [
   ["calorie_burn_per_unit_above", 0.2, "", "system"],
   ["worship_weight_per_minute", 5, "", "system"],
   ["self_help_weight_per_minute", 3, "", "system"],
+  ["slip_penalty_points", 860, "", "system"],
   ["phase_thresholds", JSON.stringify(DEFAULT_PHASE_THRESHOLDS), "", "system"],
 ];
 
@@ -2589,6 +2598,7 @@ export async function getWeaknessSettings(): Promise<WeaknessSettings> {
     calorie_burn_per_unit_above: num("calorie_burn_per_unit_above", DEFAULT_WEAKNESS_SETTINGS.calorie_burn_per_unit_above),
     worship_weight_per_minute: num("worship_weight_per_minute", DEFAULT_WEAKNESS_SETTINGS.worship_weight_per_minute),
     self_help_weight_per_minute: num("self_help_weight_per_minute", DEFAULT_WEAKNESS_SETTINGS.self_help_weight_per_minute),
+    slip_penalty_points: num("slip_penalty_points", DEFAULT_WEAKNESS_SETTINGS.slip_penalty_points),
     phase_thresholds: phaseThresholds,
   };
 }
