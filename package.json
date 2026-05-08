@@ -10,6 +10,7 @@
     "screentime:ui": "tsx scripts/screentime-ui-sync.ts"
   },
   "dependencies": {
+    "@vercel/blob": "^2.3.3",
     "googleapis": "^171.4.0",
     "next": "^15.3.9",
     "react": "^19.1.0",

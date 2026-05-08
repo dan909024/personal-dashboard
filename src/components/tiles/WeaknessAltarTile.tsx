@@ -37,7 +37,13 @@ function fmtMultiplier(m: number): string {
   return m.toFixed(m === Math.floor(m) ? 1 : 2);
 }
 
-export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
+export function WeaknessAltarTile({
+  data,
+  coachPhotoUrl = "/coach.jpg",
+}: {
+  data: WeaknessDashboardData;
+  coachPhotoUrl?: string;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [toast, setToast] = useState<string | null>(null);
@@ -117,7 +123,7 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
           aria-label="View Harley full size"
           title="Click to view full photo"
           className="hidden sm:block w-20 h-20 md:w-24 md:h-24 shrink-0 rounded-full bg-cover bg-center ring-2 ring-rose-400/60 hover:ring-rose-300 hover:scale-[1.03] transition-all shadow-lg cursor-pointer self-center"
-          style={{ backgroundImage: "url('/coach.jpg')" }}
+          style={{ backgroundImage: `url('${coachPhotoUrl}')` }}
         />
         <div className="flex flex-col items-end gap-2 shrink-0">
           {data.orgasmAllowed === "yes" ? (
@@ -336,7 +342,7 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/coach.jpg"
+            src={coachPhotoUrl}
             alt="Harley"
             className="max-w-full max-h-full object-contain shadow-2xl ring-2 ring-rose-400/40"
             onClick={(e) => e.stopPropagation()}
