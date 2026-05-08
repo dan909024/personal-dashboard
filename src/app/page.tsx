@@ -2,7 +2,6 @@ import {
   getOpenTasks,
   getHarleyBalance,
   getLatestWhoopDaily,
-  getHarleyMeter,
   isConfigured,
   isWhoopConnected,
   getDashboardSystemHealth,
@@ -17,6 +16,7 @@ import {
   type ScreenTimeRow,
   type HarleyBalance,
 } from "@/lib/sheets";
+import { getHarleyMeter } from "@/lib/harley-meter";
 import { getDashboardWeakness } from "@/lib/weakness";
 import { WeaknessAltarTile } from "@/components/tiles/WeaknessAltarTile";
 import { SyncButton } from "@/components/SyncButton";
@@ -435,7 +435,7 @@ export default async function Dashboard({
                     />
                   </div>
                   <p className="text-xs text-zinc-500 uppercase tracking-wider">
-                    {configured ? "from Daily Log" : "14 of 18 tasks this week"}
+                    {configured ? "wake / bed / gym / steps / water / tasks" : "14 of 18 tasks this week"}
                   </p>
                 </>
               );
