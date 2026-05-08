@@ -12,6 +12,7 @@ function diff(targetMs: number, nowMs: number) {
     days: Math.floor(ms / 86_400_000),
     hours: Math.floor((ms % 86_400_000) / 3_600_000),
     minutes: Math.floor((ms % 3_600_000) / 60_000),
+    seconds: Math.floor((ms % 60_000) / 1_000),
   };
 }
 
@@ -20,9 +21,10 @@ const pad2 = (n: number) => n.toString().padStart(2, "0");
 /**
  * Circular denial countdown rendered below the Denied pill in the Weakness
  * Altar header. The arc represents a 30-day reference window — fully drawn
- * at 30d remaining, shrinking as time progresses. Inside: days/hours/minutes
- * remaining. Below: lifetime edge count. Returns null while loading, when
- * no target is set, or once the target has passed. Ticks every 30s.
+ * at 30d remaining, shrinking as time progresses. Inside: days/hours/minutes/
+ * seconds remaining. Below: lifetime edge count. Returns null while loading,
+ * when no target is set, or once the target has passed. Ticks every 1s so
+ * seconds tick visibly.
  */
 export default function DenialClock({ totalEdgesEver }: { totalEdgesEver: number }) {
   const [endDate, setEndDate] = useState<string | null | undefined>(undefined);
@@ -45,7 +47,7 @@ export default function DenialClock({ totalEdgesEver }: { totalEdgesEver: number
   }, []);
 
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000);
+    const id = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(id);
   }, []);
 
@@ -95,7 +97,7 @@ export default function DenialClock({ totalEdgesEver }: { totalEdgesEver: number
         <div className="absolute inset-0 flex flex-col items-center justify-center text-rose-100 leading-none tabular-nums">
           <span className="text-xl font-semibold tracking-tight">{r.days}d</span>
           <span className="text-[10px] text-rose-200/80 mt-0.5">
-            {pad2(r.hours)}h {pad2(r.minutes)}m
+            {pad2(r.hours)}h {pad2(r.minutes)}m {pad2(r.seconds)}s
           </span>
         </div>
       </div>
