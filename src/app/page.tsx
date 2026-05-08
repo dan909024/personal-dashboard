@@ -19,8 +19,10 @@ import {
   type HarleyBalance,
 } from "@/lib/sheets";
 import { getHarleyMeter } from "@/lib/harley-meter";
+import { getHarleyTaskWindow, isCalendarConfigured } from "@/lib/calendar";
 import { getDashboardWeakness } from "@/lib/weakness";
 import { WeaknessAltarTile } from "@/components/tiles/WeaknessAltarTile";
+import { HarleyCalendarTile } from "@/components/tiles/HarleyCalendarTile";
 import { SyncButton } from "@/components/SyncButton";
 import {
   dedupeAppsPreferMac,
@@ -184,6 +186,11 @@ export default async function Dashboard({
       ? getDashboardTransactions()
       : Promise.resolve(null as DashboardTransactions | null),
   ]);
+
+  const calendarConfigured = isCalendarConfigured();
+  const calendarWindow = calendarConfigured
+    ? await getHarleyTaskWindow().catch(() => ({ past: [], future: [] }))
+    : { past: [], future: [] };
 
   const phoneSummary = summarizeScreentime(screentime);
   const owedHarley = harleyBalance?.owed ?? 0;
@@ -415,6 +422,15 @@ export default async function Dashboard({
               );
             })()}
           </Tile>
+        </div>
+
+        {/* Harley calendar — events Harley adds to the shared `weekly` calendar */}
+        <div className="px-4 pb-4">
+          <HarleyCalendarTile
+            past={calendarWindow.past}
+            future={calendarWindow.future}
+            configured={calendarConfigured}
+          />
         </div>
 
         {/* Tamper log — proves Whoop sleep stats are untouched (or shows the diff if not) */}
