@@ -494,6 +494,10 @@ export const getLatestWhoopDaily = unstable_cache(
   async (): Promise<WhoopDaily | null> => {
     const rows = await readTab("Whoop Daily");
     if (!rows || rows.length < 2) return null;
+    // Skip rows that the sync wrote as placeholders before Whoop published
+    // the day's metrics — every field empty. Falling back to the latest row
+    // with actual data is what the tile expects (and what users want to see
+    // before today's recovery is available).
     let best: WhoopDaily | null = null;
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
@@ -510,6 +514,13 @@ export const getLatestWhoopDaily = unstable_cache(
         rhr: String(r[6] ?? ""),
         hrv: String(r[7] ?? ""),
       };
+      const hasData =
+        candidate.recovery ||
+        candidate.strain ||
+        candidate.sleep ||
+        candidate.wakeTime ||
+        candidate.bedTime;
+      if (!hasData) continue;
       if (!best || candidate.date > best.date) best = candidate;
     }
     return best;
