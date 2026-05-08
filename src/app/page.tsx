@@ -21,6 +21,7 @@ import {
   type HarleyBalance,
 } from "@/lib/sheets";
 import { getHarleyMeter } from "@/lib/harley-meter";
+import { lookupRule } from "@/lib/harley-rules";
 import { getHarleyTaskWindow, isCalendarConfigured } from "@/lib/calendar";
 import { getDashboardWeakness } from "@/lib/weakness";
 import { WeaknessAltarTile } from "@/components/tiles/WeaknessAltarTile";
@@ -628,21 +629,7 @@ function HarleyBalanceTile({ balance }: { balance: HarleyBalance }) {
       {balance.recentActivity.length > 0 ? (
         <div className="space-y-1 text-xs text-zinc-400">
           {balance.recentActivity.map((a, i) => (
-            <div key={i} className="flex justify-between gap-2">
-              <span className="truncate">
-                {a.kind === "fine"
-                  ? a.reason || "Fine"
-                  : `${a.currency || "USDT"} payment`}
-              </span>
-              <span
-                className={`shrink-0 ${
-                  a.kind === "fine" ? "text-red-400" : "text-green-400"
-                }`}
-              >
-                {a.kind === "fine" ? "+" : "−"}$
-                {a.amount.toLocaleString("en-AU")}
-              </span>
-            </div>
+            <HarleyActivityRow key={i} activity={a} />
           ))}
         </div>
       ) : (
@@ -652,9 +639,53 @@ function HarleyBalanceTile({ balance }: { balance: HarleyBalance }) {
   );
 }
 
+type HarleyActivity = HarleyBalance["recentActivity"][number];
+
+function HarleyActivityRow({ activity }: { activity: HarleyActivity }) {
+  const isFine = activity.kind === "fine";
+  const label = isFine
+    ? activity.reason || "Fine"
+    : `${activity.currency || "USDT"} payment`;
+  const tooltip = buildActivityTooltip(activity);
+  const amountClass = isFine ? "text-red-400" : "text-green-400";
+  const sign = isFine ? "+" : "−";
+  return (
+    <div className="relative group flex justify-between gap-2 cursor-help" tabIndex={0}>
+      <span className="truncate">{label}</span>
+      <span className={`shrink-0 ${amountClass}`}>
+        {sign}${activity.amount.toLocaleString("en-AU")}
+      </span>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute right-0 top-full mt-2 z-20 w-64 border border-[#333] bg-[#0a0a0a] p-3 text-[11px] leading-relaxed text-zinc-300 shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity whitespace-pre-line text-left normal-case"
+      >
+        {tooltip}
+      </span>
+    </div>
+  );
+}
+
+function buildActivityTooltip(a: HarleyActivity): string {
+  if (a.kind === "payment") {
+    return `${a.currency || "USDT"} payment\nDate: ${a.date}`;
+  }
+  const lines: string[] = [];
+  const rule = lookupRule(a.ruleId);
+  if (rule) {
+    lines.push(`Auto-fine: ${rule.label}`);
+    lines.push(`Source: ${rule.source}`);
+  } else {
+    lines.push("Manual fine");
+  }
+  if (a.setBy) lines.push(`Set by: ${a.setBy}`);
+  lines.push(`Date: ${a.date}`);
+  return lines.join("\n");
+}
+
 function NoData() {
   return <p className="text-xs text-zinc-500 italic">no data yet</p>;
 }
+
 
 function formatStepsRoutine(ah: DashboardAppleHealth | null): string {
   if (!ah || (!ah.todaySteps && !ah.weekStepsAvg)) return "—";
