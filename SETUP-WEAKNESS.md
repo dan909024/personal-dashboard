@@ -120,6 +120,7 @@ Sheet — no redeploy needed.
 | `calorie_burn_per_unit_above` | 0.2 | Detraction per kcal above threshold. |
 | `worship_weight_per_minute` | 5 | Score added per logged worship minute. |
 | `self_help_weight_per_minute` | 3 | Score subtracted per logged self-help minute. |
+| `slip_penalty_points` | 860 | Flat score deduction per logged **lapsed** orgasm, applied to the day's gain. 860 ≈ 40% of the start of the final phase (2151), so anyone in the lower 40% of the curve floors to 0 (effective reset); high-score slips lose a chunk but stay weak. |
 
 ### Tuning examples
 
@@ -173,9 +174,12 @@ compute walks the JSON in declaration order.
 5. Trigger an Apple Health POST with active calories ≥ 487. The
    calorie chip appears on the tile and the day's gain reflects the
    detraction.
-6. Tap **🙏 Thanks Goddess** — Harley gets a Telegram message; next
-   day's curve resets. Tap **😔 Slipped** for a lapse without
-   resetting the curve.
+6. Tap **🙏 Thanks Goddess** — Harley gets a Telegram message; the
+   cycle anchors on this allowed release, so subsequent days start
+   from 0. Tap **😔 Slipped** for a lapse — Harley still gets the
+   Telegram, AND the day's gain takes a flat `slip_penalty_points`
+   hit (default 860). Mid-curve slips floor to 0 (effective reset);
+   high-score slips lose a chunk but stay weak.
 7. Edge #5 onwards in a single day → Harley gets a Telegram message
    per edge (orgasm logs and edges both fan out to Telegram now;
    email stays out of the loop entirely).

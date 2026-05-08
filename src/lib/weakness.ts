@@ -138,6 +138,8 @@ export type DailyGain = {
   selfHelpMinutes: number;
   calorieDetraction: number;
   activeCalories: number;
+  slipCount: number;
+  slipPenalty: number;
 };
 
 /**
@@ -152,6 +154,7 @@ export function computeDailyGain(
   worship: WorshipLogRow[],
   selfHelp: SelfHelpLogRow[],
   appleHealth: AppleHealthRow[],
+  orgasms: OrgasmLogRow[],
   settings: WeaknessSettings
 ): DailyGain {
   const todaysEdges = edgeLogs.filter((e) => e.date === date).length;
@@ -204,13 +207,22 @@ export function computeDailyGain(
         settings.calorie_burn_per_unit_above;
   }
 
+  // --- Slip penalty: each lapsed orgasm logged on this date subtracts a
+  // flat chunk. Cumulative score floors at 0, so a slip while still
+  // climbing effectively resets the curve.
+  const slipCount = orgasms.filter(
+    (o) => o.date === date && o.type === "lapsed"
+  ).length;
+  const slipPenalty = slipCount * settings.slip_penalty_points;
+
   const gain =
     settings.weakness_base_daily +
     arousalContribution +
     edgeContribution +
     worshipContribution -
     selfHelpDetraction -
-    calorieDetraction;
+    calorieDetraction -
+    slipPenalty;
 
   return {
     gain,
@@ -225,6 +237,8 @@ export function computeDailyGain(
     selfHelpMinutes,
     calorieDetraction,
     activeCalories,
+    slipCount,
+    slipPenalty,
   };
 }
 
@@ -300,6 +314,7 @@ export function computeWeaknessScore(args: {
       worship,
       selfHelp,
       appleHealth,
+      orgasms,
       settings
     );
     score += daily.gain;
@@ -353,6 +368,7 @@ export function build30DaySeries(args: {
         worship,
         selfHelp,
         appleHealth,
+        orgasms,
         settings
       );
       score += daily.gain;
@@ -480,6 +496,7 @@ export async function getDashboardWeakness(): Promise<WeaknessDashboardData> {
     worship,
     selfHelp,
     appleHealth,
+    orgasms,
     settings
   );
   const phase = determinePhase(score, settings);
