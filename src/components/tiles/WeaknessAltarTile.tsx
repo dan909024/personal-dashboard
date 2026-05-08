@@ -44,6 +44,7 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [worshipOpen, setWorshipOpen] = useState(false);
   const [selfHelpOpen, setSelfHelpOpen] = useState(false);
+  const [photoOpen, setPhotoOpen] = useState(false);
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -97,7 +98,7 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
     <div className="border border-purple-900/60 bg-[#120c1a]/90 backdrop-blur-sm p-4 col-span-1 md:col-span-3">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 mb-2">
-        <div>
+        <div className="min-w-0">
           <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase">
             Goddess&apos;s Weakening Altar
             <a
@@ -110,6 +111,14 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
           </p>
           <p className="text-[11px] text-zinc-400 italic mt-0.5">{ALTAR_TAGLINE}</p>
         </div>
+        <button
+          type="button"
+          onClick={() => setPhotoOpen(true)}
+          aria-label="View Harley full size"
+          title="Click to view full photo"
+          className="hidden sm:block w-20 h-20 md:w-24 md:h-24 shrink-0 rounded-full bg-cover bg-center ring-2 ring-rose-400/60 hover:ring-rose-300 hover:scale-[1.03] transition-all shadow-lg cursor-pointer self-center"
+          style={{ backgroundImage: "url('/coach.jpg')" }}
+        />
         <div className="flex flex-col items-end gap-2 shrink-0">
           {data.orgasmAllowed === "yes" ? (
             <button
@@ -317,6 +326,30 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
             });
           }}
         />
+      )}
+
+      {/* Coach photo lightbox */}
+      {photoOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 cursor-zoom-out"
+          onClick={() => setPhotoOpen(false)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/coach.jpg"
+            alt="Harley"
+            className="max-w-full max-h-full object-contain shadow-2xl ring-2 ring-rose-400/40"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            onClick={() => setPhotoOpen(false)}
+            aria-label="Close"
+            className="fixed top-4 right-4 w-10 h-10 flex items-center justify-center text-white text-2xl bg-black/60 border border-white/20 hover:border-white/60 hover:bg-black/80 transition-colors"
+          >
+            ×
+          </button>
+        </div>
       )}
 
       {/* Self-help modal */}

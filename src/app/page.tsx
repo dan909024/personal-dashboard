@@ -263,21 +263,12 @@ export default async function Dashboard({
         {/* Top strip */}
         <div className="w-full bg-black/60 backdrop-blur-sm border-b border-[#222] px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div
-                className="w-11 h-11 shrink-0 rounded-full bg-cover bg-center ring-2 ring-rose-400/60 shadow-md"
-                style={{ backgroundImage: "url('/coach.jpg')" }}
-                aria-label="Coach Harley"
-                title="Coach Harley"
-              />
-              <p className="text-sm font-semibold tracking-widest text-white uppercase truncate">
-                <span className="text-rose-300">COACH HARLEY</span>{" "}
-                &middot; WEEK {week} &middot; {review.label} &middot;{" "}
-                <span className="text-red-400">
-                  OWED: ${configured ? owedHarley : 135}
-                </span>
-              </p>
-            </div>
+            <p className="text-sm font-semibold tracking-widest text-white uppercase">
+              WEEK {week} &middot; {review.label} &middot;{" "}
+              <span className="text-red-400">
+                OWED HARLEY: ${configured ? owedHarley : 135}
+              </span>
+            </p>
             <div className="flex items-center gap-3 shrink-0">
               <SystemHealthPill health={sysHealth} configured={configured} />
               <SyncButton />
