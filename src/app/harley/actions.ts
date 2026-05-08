@@ -4,11 +4,17 @@ import { cookies } from "next/headers";
 import { revalidatePath, revalidateTag } from "next/cache";
 import {
   DENIAL_END_DATE_TAG,
+  appendPunishment,
+  markAllUnpaidPaid,
+  markPunishmentPaid,
   readDenialEndDate,
   setDenialEndDate,
   setSetting,
+  voidPunishment,
 } from "@/lib/sheets";
+import { HARLEY_RULES, type HarleyRuleId } from "@/lib/harley-rules";
 import { verifyJWT } from "@/lib/jwt";
+import { sendDanTelegram } from "@/lib/telegram";
 
 async function authorized(): Promise<boolean> {
   const c = await cookies();
@@ -65,17 +71,17 @@ function revalidateAll() {
 }
 
 export async function extendDenialAction(
-  daysOffset: number
+  hoursOffset: number
 ): Promise<
   { ok: true; newEndDate: string } | { ok: false; error: string }
 > {
   if (!(await authorized())) return { ok: false, error: "unauthorized" };
-  if (!Number.isFinite(daysOffset) || daysOffset === 0) {
-    return { ok: false, error: "invalid days" };
+  if (!Number.isFinite(hoursOffset) || hoursOffset === 0) {
+    return { ok: false, error: "invalid hours" };
   }
   // Base from the current target if it's still future; otherwise from now.
   // That way "+3 days" extends an active denial, but if the date has lapsed
-  // it starts a fresh 3-day window from this moment.
+  // it starts a fresh window from this moment.
   const current = await readDenialEndDate();
   const nowMs = Date.now();
   let baseMs = nowMs;
@@ -83,7 +89,7 @@ export async function extendDenialAction(
     const ms = Date.parse(current);
     if (!isNaN(ms) && ms > nowMs) baseMs = ms;
   }
-  const newMs = baseMs + daysOffset * 86_400_000;
+  const newMs = baseMs + hoursOffset * 3_600_000;
   const newEndDate = formatSydneyOffsetISO(new Date(newMs));
   try {
     await setDenialEndDate(newEndDate);
@@ -138,6 +144,120 @@ export async function setOrgasmAllowedAdminAction(
     await setSetting("orgasm_allowed", value, "harley-admin");
     revalidateAll();
     return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+// ---------- Fines ----------
+
+export async function addFineAction(
+  amount: number,
+  reason: string,
+  ruleId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, error: "amount must be > 0" };
+  }
+  // Cap absurd amounts to avoid fat-finger ($1m on a phone). Daniel can
+  // raise this if he ever needs to.
+  if (amount > 100_000) {
+    return { ok: false, error: "amount too large" };
+  }
+  const trimmedReason = reason.trim().slice(0, 200);
+  const validRuleId =
+    ruleId && Object.prototype.hasOwnProperty.call(HARLEY_RULES, ruleId)
+      ? (ruleId as HarleyRuleId)
+      : "";
+  try {
+    await appendPunishment({
+      amount,
+      reason: trimmedReason || "Manual fine",
+      setBy: "Harley (panel)",
+      ruleId: validRuleId,
+    });
+    revalidateAll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function markFinePaidAction(
+  rowIndex: number
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  if (!Number.isInteger(rowIndex) || rowIndex < 2) {
+    return { ok: false, error: "invalid row" };
+  }
+  try {
+    await markPunishmentPaid(rowIndex);
+    revalidateAll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function voidFineAction(
+  rowIndex: number
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  if (!Number.isInteger(rowIndex) || rowIndex < 2) {
+    return { ok: false, error: "invalid row" };
+  }
+  try {
+    await voidPunishment(rowIndex);
+    revalidateAll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function clearAllUnpaidFinesAction(): Promise<
+  { ok: true; cleared: number } | { ok: false; error: string }
+> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  try {
+    const cleared = await markAllUnpaidPaid();
+    revalidateAll();
+    return { ok: true, cleared };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function setDoubleNextMonthAction(
+  enabled: boolean
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  try {
+    await setSetting("double_next_month", enabled ? "yes" : "no", "harley-admin");
+    revalidateAll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+// ---------- Communications ----------
+
+/**
+ * Push a message to Daniel's Telegram from the Goddess panel. Prefixes
+ * with "🩷 Goddess:" so Daniel sees the source at a glance regardless
+ * of free-text content. Skips silently when bot/chat env is missing.
+ */
+export async function messageDanielAction(
+  body: string
+): Promise<{ ok: true; sent: boolean } | { ok: false; error: string }> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  const text = body.trim().slice(0, 4000);
+  if (!text) return { ok: false, error: "empty message" };
+  try {
+    const result = await sendDanTelegram(`🩷 Goddess:\n${text}`);
+    return { ok: true, sent: result.sent };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

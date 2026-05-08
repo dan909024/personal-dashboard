@@ -29,7 +29,7 @@ export function isConfigured(): boolean {
 // Tab schemas — keep in sync with the schema we create in ensureTabs().
 export const TAB_SCHEMAS = {
   Tasks: ["Date", "Task", "Set by", "Done?", "Completed at", "Proof link"],
-  Punishments: ["Date", "Amount", "Reason", "Set by", "Paid?"],
+  Punishments: ["Date", "Amount", "Reason", "Set by", "Paid?", "Rule"],
   "Daily Log": [
     "Date",
     "Voice notes",
@@ -356,6 +356,10 @@ export type Punishment = {
   reason: string;
   setBy: string;
   paid: boolean;
+  /** HarleyRuleId from harley-rules.ts when the fine was auto-derived from a
+   *  rule violation. Empty/undefined for manual fines (sheet edits, /fine
+   *  Telegram command, monthly fee). */
+  ruleId?: string;
 };
 
 export type CoachNote = {
@@ -464,6 +468,7 @@ export const getPunishments = unstable_cache(
         reason: r[2] || "",
         setBy: r[3] || "",
         paid: isTruthy(r[4]),
+        ruleId: r[5] ? String(r[5]).trim() : undefined,
       });
     }
     out.sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -641,6 +646,21 @@ export async function ensureTabs(): Promise<{
         requestBody: { values: [Array.from(headers)] },
       });
     }
+  }
+
+  // Backfill columns added to TAB_SCHEMAS after a tab was first created.
+  // Extends only — never shortens or reorders, so legacy data is safe.
+  for (const tab of existing) {
+    const wanted = TAB_SCHEMAS[tab];
+    const current = await readTab(tab);
+    const have = current?.[0] || [];
+    if (have.length >= wanted.length) continue;
+    await client.spreadsheets.values.update({
+      spreadsheetId: sheetId(),
+      range: `${tab}!A1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [Array.from(wanted)] },
+    });
   }
 
   return { created, existing };
@@ -1363,6 +1383,7 @@ async function getAllUnpaidPunishments(): Promise<Punishment[]> {
       reason: r[2] || "",
       setBy: r[3] || "",
       paid,
+      ruleId: r[5] ? String(r[5]).trim() : undefined,
     });
   }
   return out;
@@ -1375,7 +1396,14 @@ export type HarleyBalance = {
   fineCount: number;
   paymentCount: number;
   recentActivity: Array<
-    | { kind: "fine"; date: string; amount: number; reason: string }
+    | {
+        kind: "fine";
+        date: string;
+        amount: number;
+        reason: string;
+        setBy: string;
+        ruleId?: string;
+      }
     | { kind: "payment"; date: string; amount: number; currency: string }
   >;
 };
@@ -1395,6 +1423,8 @@ export const getHarleyBalance = unstable_cache(
         date: p.date,
         amount: p.amount,
         reason: p.reason,
+        setBy: p.setBy,
+        ruleId: p.ruleId,
       })),
       ...payments.map((p) => ({
         kind: "payment" as const,
@@ -1420,10 +1450,20 @@ export const getHarleyBalance = unstable_cache(
  * Idempotent monthly-fine appender. Skips if a Punishment row with
  * Reason="Monthly fee — <Month> <Year>" already exists for the
  * current Sydney month. Returns whether a row was appended.
+ *
+ * If the `double_next_month` Setting is "yes" when this fires, the
+ * appended amount is 2× and the Setting resets to "no" so doubling
+ * applies to one month only.
  */
 export async function appendMonthlyFineIfMissing(
   amount = 1000
-): Promise<{ appended: boolean; reason: string; monthLabel: string }> {
+): Promise<{
+  appended: boolean;
+  reason: string;
+  monthLabel: string;
+  doubled: boolean;
+  finalAmount: number;
+}> {
   const client = sheetsClient();
   const now = new Date();
   const monthLabel = new Intl.DateTimeFormat("en-AU", {
@@ -1440,10 +1480,24 @@ export async function appendMonthlyFineIfMissing(
       const r = rows[i];
       if (!r) continue;
       if (String(r[2] ?? "").trim() === reason) {
-        return { appended: false, reason, monthLabel };
+        return {
+          appended: false,
+          reason,
+          monthLabel,
+          doubled: false,
+          finalAmount: amount,
+        };
       }
     }
   }
+
+  const settings = await readSettingsTab();
+  const doubled =
+    String(settings.get("double_next_month") ?? "")
+      .trim()
+      .toLowerCase() === "yes";
+  const finalAmount = doubled ? amount * 2 : amount;
+  const finalReason = doubled ? `${reason} (doubled)` : reason;
 
   const today = todaySydneyISO();
   await client.spreadsheets.values.append({
@@ -1451,10 +1505,224 @@ export async function appendMonthlyFineIfMissing(
     range: "Punishments!A1",
     valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: [[today, amount, reason, "auto", "no"]],
+      // Empty 6th column — monthly fee isn't tied to a Harley Meter rule.
+      values: [[today, finalAmount, finalReason, "auto", "no", ""]],
     },
   });
-  return { appended: true, reason, monthLabel };
+
+  // Toggle is single-shot — clear after the fine actually appended.
+  if (doubled) {
+    try {
+      await setSetting("double_next_month", "no", "monthly-fine");
+    } catch {
+      // Don't fail the cron if the reset write hiccups; log and move on.
+      console.error("[monthly-fine] failed to reset double_next_month");
+    }
+  }
+
+  return { appended: true, reason: finalReason, monthLabel, doubled, finalAmount };
+}
+
+/**
+ * Append a single Punishments row. Used by the /fine Telegram command
+ * and the rule-eval cron. `ruleId` is the HarleyRuleId when the fine
+ * traces to a Harley Meter rule; empty string for manual fines.
+ *
+ * `date` defaults to today (Sydney). For auto-rule-eval fines, callers
+ * pass the violation period start so (ruleId, date) is the idempotency
+ * key — the day of the missed wake, or the Monday of the failed week.
+ */
+export async function appendPunishment(opts: {
+  amount: number;
+  reason: string;
+  setBy: string;
+  ruleId?: string;
+  date?: string;
+}): Promise<void> {
+  const client = sheetsClient();
+  const date = opts.date || todaySydneyISO();
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Punishments!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[date, opts.amount, opts.reason, opts.setBy, "no", opts.ruleId || ""]],
+    },
+  });
+}
+
+/**
+ * Read all Punishments rows (paid and unpaid). Rule-eval cron uses this
+ * to dedupe on (ruleId, date) before appending — once we've fined for a
+ * rule on a given period, never fine again.
+ */
+export async function getAllPunishments(): Promise<Punishment[]> {
+  const rows = await readTab("Punishments");
+  if (!rows || rows.length < 2) return [];
+  const out: Punishment[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const date = normalizeDate(r[0]);
+    if (!date) continue;
+    const amount = Number(String(r[1] || "0").replace(/[^0-9.\-]/g, "")) || 0;
+    out.push({
+      date,
+      amount,
+      reason: r[2] || "",
+      setBy: r[3] || "",
+      paid: isTruthy(r[4]),
+      ruleId: r[5] ? String(r[5]).trim() : undefined,
+    });
+  }
+  return out;
+}
+
+/**
+ * A Punishment row tagged with its 1-based sheet rowIndex. The Goddess
+ * panel uses the rowIndex as the canonical identifier when marking
+ * fines paid or voiding them. Indices are stable until the next
+ * deleteDimension; the panel revalidates after every mutation so
+ * stale indices never make it back to the server.
+ */
+export type PunishmentWithRow = Punishment & { rowIndex: number };
+
+/**
+ * Recent unpaid Punishments, newest-first, with sheet rowIndex.
+ * Uncached on purpose: the Goddess panel reads this immediately
+ * after writes and needs to see fresh state.
+ */
+export async function getRecentUnpaidPunishments(
+  limit = 10
+): Promise<PunishmentWithRow[]> {
+  const rows = await readTab("Punishments");
+  if (!rows || rows.length < 2) return [];
+  const out: PunishmentWithRow[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const date = normalizeDate(r[0]);
+    if (!date) continue;
+    if (isTruthy(r[4])) continue; // skip paid
+    const amount = Number(String(r[1] || "0").replace(/[^0-9.\-]/g, "")) || 0;
+    out.push({
+      date,
+      amount,
+      reason: r[2] || "",
+      setBy: r[3] || "",
+      paid: false,
+      ruleId: r[5] ? String(r[5]).trim() : undefined,
+      rowIndex: i + 1, // sheet rows are 1-based
+    });
+  }
+  out.sort((a, b) => (a.date < b.date ? 1 : -1));
+  return out.slice(0, limit);
+}
+
+/** Cached numeric sheetId lookup for the Punishments tab. */
+async function getPunishmentsNumericSheetId(): Promise<number> {
+  const client = sheetsClient();
+  const meta = await client.spreadsheets.get({ spreadsheetId: sheetId() });
+  const sheet = (meta.data.sheets || []).find(
+    (s) => s.properties?.title === "Punishments"
+  );
+  const id = sheet?.properties?.sheetId;
+  if (id == null) throw new Error("Punishments tab not found");
+  return id;
+}
+
+/** Mark a single Punishment row paid (column E = "yes"). */
+export async function markPunishmentPaid(rowIndex: number): Promise<void> {
+  if (rowIndex < 2) throw new Error("invalid rowIndex");
+  const client = sheetsClient();
+  await client.spreadsheets.values.update({
+    spreadsheetId: sheetId(),
+    range: `Punishments!E${rowIndex}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [["yes"]] },
+  });
+}
+
+/**
+ * Delete a Punishment row entirely. "Void" semantics — for fat-finger
+ * fines that should never have been recorded.
+ *
+ * Caller MUST refetch row indices after this call; subsequent rows
+ * shift up by one, invalidating any held rowIndex.
+ */
+export async function voidPunishment(rowIndex: number): Promise<void> {
+  if (rowIndex < 2) throw new Error("invalid rowIndex");
+  const client = sheetsClient();
+  const numericSheetId = await getPunishmentsNumericSheetId();
+  await client.spreadsheets.batchUpdate({
+    spreadsheetId: sheetId(),
+    requestBody: {
+      requests: [
+        {
+          deleteDimension: {
+            range: {
+              sheetId: numericSheetId,
+              dimension: "ROWS",
+              startIndex: rowIndex - 1, // API is 0-based
+              endIndex: rowIndex,
+            },
+          },
+        },
+      ],
+    },
+  });
+}
+
+/**
+ * Mark every unpaid Punishment row paid in a single batch. Used by the
+ * Goddess panel "reset balance" action — for after Daniel actually
+ * pays the running total in cash. Returns count of rows updated.
+ */
+export async function markAllUnpaidPaid(): Promise<number> {
+  const rows = await readTab("Punishments");
+  if (!rows || rows.length < 2) return 0;
+  const updates: { range: string; values: string[][] }[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const date = normalizeDate(r[0]);
+    if (!date) continue;
+    if (isTruthy(r[4])) continue;
+    updates.push({
+      range: `Punishments!E${i + 1}`,
+      values: [["yes"]],
+    });
+  }
+  if (updates.length === 0) return 0;
+  const client = sheetsClient();
+  await client.spreadsheets.values.batchUpdate({
+    spreadsheetId: sheetId(),
+    requestBody: { valueInputOption: "USER_ENTERED", data: updates },
+  });
+  return updates.length;
+}
+
+/**
+ * Count Whoop workouts whose Date column is in [startISO, endISO]
+ * inclusive (both YYYY-MM-DD). Used by rule-eval to score the gym rule
+ * over an arbitrary Mon-Sun window.
+ */
+export async function countWhoopWorkoutsInRange(
+  startISO: string,
+  endISO: string
+): Promise<number> {
+  if (!isConfigured()) return 0;
+  const rows = await readTab("Whoop Workouts");
+  if (!rows || rows.length < 2) return 0;
+  let count = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const d = normalizeDate(r[0] as string | number | undefined);
+    if (!d) continue;
+    if (d >= startISO && d <= endISO) count++;
+  }
+  return count;
 }
 
 // ---------- Apple Health ----------
@@ -1523,24 +1791,23 @@ export async function appendAppleHealth(
     const src = String(r[5] ?? "");
     if (d === row.date && src === row.source) {
       const sheetRow = i + 1;
-      // Preserve prior nutrition readings when this payload doesn't
-      // include one (Auto Export sometimes posts mid-day before water /
-      // protein / calorie logging is up to date).
+      // Preserve prior readings when this payload's value is empty/zero
+      // (treat 0 / undefined as "no fresh data" rather than "actually zero")
+      // — Whoop sometimes hasn't pushed steps/active calories yet when the
+      // Shortcut runs, and Ladder logs nutrition mid-day.
       const existing = r as (string | number)[];
       const merged = [...values];
-      if (row.waterMl === undefined && existing[7] !== undefined && existing[7] !== "") {
-        merged[7] = existing[7];
-      }
-      if (row.proteinG === undefined && existing[8] !== undefined && existing[8] !== "") {
-        merged[8] = existing[8];
-      }
-      if (
-        row.caloriesConsumed === undefined &&
-        existing[9] !== undefined &&
-        existing[9] !== ""
-      ) {
-        merged[9] = existing[9];
-      }
+      const preserve = (idx: number, fresh: number | undefined) => {
+        if ((fresh === undefined || fresh === 0) && existing[idx] !== undefined && existing[idx] !== "") {
+          merged[idx] = existing[idx];
+        }
+      };
+      preserve(1, row.steps); // Steps
+      preserve(3, row.activeCalories); // Active Calories
+      preserve(4, row.restingCalories); // Resting Calories
+      preserve(7, row.waterMl); // Water (ml)
+      preserve(8, row.proteinG); // Protein (g)
+      preserve(9, row.caloriesConsumed); // Calories Consumed
       await client.spreadsheets.values.update({
         spreadsheetId: id,
         range: `Apple Health!A${sheetRow}:J${sheetRow}`,

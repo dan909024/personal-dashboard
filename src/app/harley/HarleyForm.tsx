@@ -3,14 +3,26 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+import { HARLEY_RULES, type HarleyRuleId } from "@/lib/harley-rules";
+import type { PunishmentWithRow } from "@/lib/sheets";
 import {
+  addFineAction,
+  clearAllUnpaidFinesAction,
   clearDenialAction,
   extendDenialAction,
+  markFinePaidAction,
+  messageDanielAction,
   setDenialDateAction,
+  setDoubleNextMonthAction,
   setOrgasmAllowedAdminAction,
+  voidFineAction,
 } from "./actions";
 
-type ActionResult = { ok: true } | { ok: false; error: string } | { ok: true; newEndDate: string };
+type ActionResult =
+  | { ok: true }
+  | { ok: false; error: string }
+  | { ok: true; newEndDate: string }
+  | { ok: true; cleared: number };
 
 type SyncResult = {
   ok: boolean;
@@ -20,12 +32,22 @@ type SyncResult = {
   emailSent: boolean;
 };
 
+const QUICK_FINE_AMOUNTS = [5, 10, 25, 50, 100, 200] as const;
+
 export function HarleyForm({
   endDate,
   allowed,
+  owedHarley,
+  recentFines,
+  doubleNextMonth,
+  harleyMeter,
 }: {
   endDate: string | null;
   allowed: "yes" | "no";
+  owedHarley: number;
+  recentFines: PunishmentWithRow[];
+  doubleNextMonth: boolean;
+  harleyMeter: number;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -33,6 +55,14 @@ export function HarleyForm({
   const [toast, setToast] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | { error: string } | null>(null);
+  const [customFine, setCustomFine] = useState("");
+  const [fineReason, setFineReason] = useState("");
+  const [fineRule, setFineRule] = useState<HarleyRuleId | "">("");
+  // Two-stage confirm: which destructive action is "armed" (one tap from
+  // firing). Resets on a 4s timeout or after the action runs.
+  const [armed, setArmed] = useState<string | null>(null);
+  const [messageBody, setMessageBody] = useState("");
+  const [messageSending, setMessageSending] = useState(false);
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -51,8 +81,8 @@ export function HarleyForm({
     });
   };
 
-  const onAdd = (days: number, label: string) => {
-    run(label, () => extendDenialAction(days));
+  const onAdd = (hours: number, label: string) => {
+    run(label, () => extendDenialAction(hours));
   };
 
   const onApplyDate = () => {
@@ -63,19 +93,104 @@ export function HarleyForm({
     run("Date set", () => setDenialDateAction(absoluteDate));
   };
 
+  // Two-stage confirm: first click arms the action, second within 4s fires.
+  const armOrFire = (key: string, fire: () => void) => {
+    if (armed === key) {
+      setArmed(null);
+      fire();
+    } else {
+      setArmed(key);
+      setTimeout(() => {
+        setArmed((cur) => (cur === key ? null : cur));
+      }, 4000);
+    }
+  };
+
   const onClear = () => {
-    if (!confirm("Clear the denial target? Countdown will disappear.")) return;
-    run("Cleared", () => clearDenialAction());
+    armOrFire("clear", () => run("Cleared", () => clearDenialAction()));
   };
 
   const onAllow = () => {
-    if (!confirm("Allow him now?")) return;
-    run("Allowed", () => setOrgasmAllowedAdminAction("yes"));
+    armOrFire("allow", () =>
+      run("Allowed", () => setOrgasmAllowedAdminAction("yes"))
+    );
   };
 
   const onDeny = () => {
-    if (!confirm("Deny him now?")) return;
-    run("Denied", () => setOrgasmAllowedAdminAction("no"));
+    armOrFire("deny", () =>
+      run("Denied", () => setOrgasmAllowedAdminAction("no"))
+    );
+  };
+
+  const onAddFine = (amount: number) => {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      flash("Pick an amount");
+      return;
+    }
+    run(`Fined $${amount}`, () =>
+      addFineAction(amount, fineReason, fineRule).then((r) => {
+        if (r.ok) {
+          setCustomFine("");
+          setFineReason("");
+          setFineRule("");
+        }
+        return r;
+      })
+    );
+  };
+
+  const onCustomFine = () => {
+    const n = Number(customFine);
+    if (!Number.isFinite(n) || n <= 0) {
+      flash("Enter a positive number");
+      return;
+    }
+    onAddFine(n);
+  };
+
+  const onMarkPaid = (rowIndex: number, label: string) => {
+    run(`Paid: ${label}`, () => markFinePaidAction(rowIndex));
+  };
+
+  const onVoidFine = (rowIndex: number, label: string) => {
+    armOrFire(`void:${rowIndex}`, () =>
+      run(`Voided "${label}"`, () => voidFineAction(rowIndex))
+    );
+  };
+
+  const onClearAllUnpaid = () => {
+    armOrFire("reset-balance", () =>
+      run("Balance reset", () => clearAllUnpaidFinesAction())
+    );
+  };
+
+  const onToggleDoubleNextMonth = () => {
+    run(
+      doubleNextMonth ? "Doubling off" : "Doubling on",
+      () => setDoubleNextMonthAction(!doubleNextMonth)
+    );
+  };
+
+  const onMessageDaniel = async () => {
+    const text = messageBody.trim();
+    if (!text) {
+      flash("Type a message first");
+      return;
+    }
+    setMessageSending(true);
+    try {
+      const res = await messageDanielAction(text);
+      if (res.ok) {
+        flash(res.sent ? "Sent ✓" : "Saved (Telegram not configured)");
+        setMessageBody("");
+      } else {
+        flash(`Error: ${res.error}`);
+      }
+    } catch (e) {
+      flash(`Failed: ${(e as Error).message}`);
+    } finally {
+      setMessageSending(false);
+    }
   };
 
   const onSyncNow = async () => {
@@ -115,28 +230,66 @@ export function HarleyForm({
 
         {/* Current state */}
         <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
-          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
             Current state
           </p>
-          <p className="text-sm mb-1">
-            Status:{" "}
-            <span
-              className={`font-semibold ${
-                allowed === "yes" ? "text-emerald-300" : "text-rose-300"
-              }`}
-            >
-              ● {allowed === "yes" ? "Allowed" : "Denied"}
+
+          {/* Status pill — visually dominant */}
+          <div
+            className={`flex items-center gap-2 mb-3 ${
+              allowed === "yes" ? "text-emerald-300" : "text-rose-300"
+            }`}
+          >
+            <span className="text-2xl leading-none">●</span>
+            <span className="text-2xl font-bold uppercase tracking-wider">
+              {allowed === "yes" ? "Allowed" : "Denied"}
             </span>
-          </p>
-          <p className="text-sm">
-            Target:{" "}
-            <span className="font-mono text-zinc-300">
-              {endDate || "(none)"}
-            </span>
-          </p>
-          {summary && (
-            <p className="text-xs text-zinc-500 mt-1">{summary}</p>
+          </div>
+
+          {/* Countdown — promoted to hero */}
+          {summary ? (
+            <p className="text-lg font-semibold text-zinc-100">{summary}</p>
+          ) : (
+            <p className="text-sm text-zinc-500 italic">No target set.</p>
           )}
+          {endDate && (
+            <p className="text-xs text-zinc-500 mt-0.5" title={endDate}>
+              {humanizeEndDate(endDate)}
+            </p>
+          )}
+
+          {/* Stats row */}
+          <div className="mt-3 pt-3 border-t border-purple-900/40 grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-zinc-500">
+                Owed Harley
+              </p>
+              <p
+                className={`font-mono text-lg font-semibold tabular-nums ${
+                  owedHarley > 0 ? "text-amber-300" : "text-emerald-300"
+                }`}
+              >
+                ${owedHarley.toLocaleString()}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-zinc-500">
+                Harley Meter
+              </p>
+              <p
+                className={`font-mono text-lg font-semibold tabular-nums ${
+                  harleyMeter >= 80
+                    ? "text-emerald-300"
+                    : harleyMeter >= 50
+                    ? "text-amber-300"
+                    : "text-rose-300"
+                }`}
+              >
+                {harleyMeter}
+                <span className="text-zinc-600 text-sm">/100</span>
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Quick add */}
@@ -147,25 +300,161 @@ export function HarleyForm({
           <p className="text-[11px] text-zinc-500 mb-3 italic">
             Adds to the current target if still future, otherwise to now.
           </p>
-          <div className="grid grid-cols-3 gap-2">
-            <QuickButton onClick={() => onAdd(1, "+1 day")} disabled={isPending}>
+          <div className="grid grid-cols-4 gap-2">
+            <QuickButton onClick={() => onAdd(1, "+1 hour")} disabled={isPending}>
+              +1 hr
+            </QuickButton>
+            <QuickButton onClick={() => onAdd(12, "+12 hours")} disabled={isPending}>
+              +12 hr
+            </QuickButton>
+            <QuickButton onClick={() => onAdd(24, "+1 day")} disabled={isPending}>
               +1 day
             </QuickButton>
-            <QuickButton onClick={() => onAdd(3, "+3 days")} disabled={isPending}>
+            <QuickButton onClick={() => onAdd(72, "+3 days")} disabled={isPending}>
               +3 days
             </QuickButton>
-            <QuickButton onClick={() => onAdd(7, "+1 week")} disabled={isPending}>
-              +1 week
+            <QuickButton onClick={() => onAdd(168, "+1 week")} disabled={isPending}>
+              +1 wk
             </QuickButton>
-            <QuickButton onClick={() => onAdd(14, "+2 weeks")} disabled={isPending}>
-              +2 weeks
+            <QuickButton onClick={() => onAdd(336, "+2 weeks")} disabled={isPending}>
+              +2 wks
             </QuickButton>
-            <QuickButton onClick={() => onAdd(30, "+1 month")} disabled={isPending}>
-              +1 month
+            <QuickButton onClick={() => onAdd(720, "+1 month")} disabled={isPending}>
+              +1 mo
             </QuickButton>
-            <QuickButton onClick={() => onAdd(90, "+3 months")} disabled={isPending}>
-              +3 months
+            <QuickButton onClick={() => onAdd(2160, "+3 months")} disabled={isPending}>
+              +3 mo
             </QuickButton>
+          </div>
+        </div>
+
+        {/* Fines */}
+        <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+            Fines
+          </p>
+          <p className="text-[11px] text-zinc-500 mb-3 italic">
+            Adds a row to Punishments. Optional reason + rule attach
+            provenance. The OWED HARLEY tile updates within a minute.
+          </p>
+
+          {/* Quick amounts */}
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {QUICK_FINE_AMOUNTS.map((n) => (
+              <QuickButton
+                key={n}
+                onClick={() => onAddFine(n)}
+                disabled={isPending}
+              >
+                ${n}
+              </QuickButton>
+            ))}
+          </div>
+
+          {/* Custom amount */}
+          <div className="flex gap-2 mb-3">
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">
+                $
+              </span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="1"
+                step="1"
+                placeholder="Custom"
+                value={customFine}
+                onChange={(e) => setCustomFine(e.target.value)}
+                className="w-full text-sm bg-black/40 border border-purple-900 text-zinc-100 pl-6 pr-2 py-2 focus:outline-none focus:border-purple-500"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={onCustomFine}
+              disabled={isPending || !customFine}
+              className="px-3 py-2 text-xs font-semibold uppercase tracking-widest border border-purple-700 bg-purple-950/40 text-purple-200 hover:border-purple-400 hover:bg-purple-900/60 transition-colors disabled:opacity-40"
+            >
+              Fine
+            </button>
+          </div>
+
+          {/* Reason + rule */}
+          <input
+            type="text"
+            value={fineReason}
+            onChange={(e) => setFineReason(e.target.value)}
+            placeholder="Reason (optional)"
+            maxLength={200}
+            className="w-full text-sm bg-black/40 border border-purple-900 text-zinc-100 px-2 py-2 mb-2 focus:outline-none focus:border-purple-500"
+          />
+          <select
+            value={fineRule}
+            onChange={(e) => setFineRule(e.target.value as HarleyRuleId | "")}
+            className="w-full text-sm bg-black/40 border border-purple-900 text-zinc-100 px-2 py-2 mb-3 focus:outline-none focus:border-purple-500 [color-scheme:dark]"
+          >
+            <option value="">Manual fine (no rule)</option>
+            {Object.values(HARLEY_RULES).map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+
+          {/* Recent fines list */}
+          {recentFines.length > 0 ? (
+            <div className="border-t border-purple-900/40 pt-3">
+              <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+                Unpaid · {recentFines.length}
+              </p>
+              <ul className="space-y-1.5">
+                {recentFines.map((f) => (
+                  <FineRow
+                    key={f.rowIndex}
+                    fine={f}
+                    disabled={isPending}
+                    voidArmed={armed === `void:${f.rowIndex}`}
+                    onMarkPaid={onMarkPaid}
+                    onVoid={onVoidFine}
+                  />
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-[11px] text-zinc-600 italic border-t border-purple-900/40 pt-3">
+              No unpaid fines.
+            </p>
+          )}
+
+          {/* Double next month + reset */}
+          <div className="border-t border-purple-900/40 mt-3 pt-3 space-y-2">
+            <button
+              type="button"
+              onClick={onToggleDoubleNextMonth}
+              disabled={isPending}
+              className={`w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-50 ${
+                doubleNextMonth
+                  ? "border-amber-500 bg-amber-950/40 text-amber-200 hover:border-amber-300"
+                  : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white"
+              }`}
+            >
+              {doubleNextMonth
+                ? "Double next monthly fee · ON"
+                : "Double next monthly fee"}
+            </button>
+            <button
+              type="button"
+              onClick={onClearAllUnpaid}
+              disabled={isPending || recentFines.length === 0}
+              className={`w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-40 ${
+                armed === "reset-balance"
+                  ? "border-rose-400 bg-rose-950/60 text-rose-200"
+                  : "border-zinc-700 text-zinc-400 hover:border-rose-500 hover:text-rose-300"
+              }`}
+            >
+              {armed === "reset-balance"
+                ? "Tap again to confirm"
+                : "Reset balance to $0"}
+            </button>
           </div>
         </div>
 
@@ -248,6 +537,50 @@ export function HarleyForm({
           )}
         </div>
 
+        {/* Message Daniel */}
+        <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+            Message Daniel
+          </p>
+          <p className="text-[11px] text-zinc-500 mb-3 italic">
+            Goes to his Telegram, prefixed “🩷 Goddess:”.
+          </p>
+          <div className="flex flex-wrap gap-1 mb-3">
+            {[
+              "Lock check now.",
+              "Good boy.",
+              "Disappointed.",
+              "Knees, now.",
+            ].map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setMessageBody(t)}
+                disabled={messageSending || isPending}
+                className="px-2 py-1 text-[10px] uppercase tracking-widest border border-purple-900 text-zinc-400 hover:border-purple-500 hover:text-zinc-200 transition-colors disabled:opacity-40"
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={messageBody}
+            onChange={(e) => setMessageBody(e.target.value)}
+            placeholder="Type a message…"
+            rows={3}
+            maxLength={4000}
+            className="w-full text-sm bg-black/40 border border-purple-900 text-zinc-100 px-2 py-2 mb-2 focus:outline-none focus:border-purple-500 resize-none"
+          />
+          <button
+            type="button"
+            onClick={onMessageDaniel}
+            disabled={messageSending || isPending || !messageBody.trim()}
+            className="w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border border-purple-700 bg-purple-950/40 text-purple-200 hover:border-purple-400 hover:bg-purple-900/60 transition-colors disabled:opacity-40"
+          >
+            {messageSending ? "Sending…" : "Send to Daniel"}
+          </button>
+        </div>
+
         {/* Toggle + clear */}
         <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
           <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
@@ -258,26 +591,38 @@ export function HarleyForm({
               type="button"
               onClick={onAllow}
               disabled={isPending || allowed === "yes"}
-              className="px-3 py-2 text-xs font-semibold uppercase tracking-widest border border-emerald-700 bg-emerald-950/40 text-emerald-200 hover:border-emerald-400 hover:bg-emerald-900/60 transition-colors disabled:opacity-40"
+              className={`px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-40 ${
+                armed === "allow"
+                  ? "border-emerald-300 bg-emerald-900/70 text-emerald-100"
+                  : "border-emerald-700 bg-emerald-950/40 text-emerald-200 hover:border-emerald-400 hover:bg-emerald-900/60"
+              }`}
             >
-              Allow now
+              {armed === "allow" ? "Tap again ✓" : "Allow now"}
             </button>
             <button
               type="button"
               onClick={onDeny}
               disabled={isPending || allowed === "no"}
-              className="px-3 py-2 text-xs font-semibold uppercase tracking-widest border border-rose-700 bg-rose-950/40 text-rose-200 hover:border-rose-400 hover:bg-rose-900/60 transition-colors disabled:opacity-40"
+              className={`px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-40 ${
+                armed === "deny"
+                  ? "border-rose-300 bg-rose-900/70 text-rose-100"
+                  : "border-rose-700 bg-rose-950/40 text-rose-200 hover:border-rose-400 hover:bg-rose-900/60"
+              }`}
             >
-              Deny now
+              {armed === "deny" ? "Tap again ✓" : "Deny now"}
             </button>
           </div>
           <button
             type="button"
             onClick={onClear}
             disabled={isPending}
-            className="w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white transition-colors disabled:opacity-50"
+            className={`w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-50 ${
+              armed === "clear"
+                ? "border-amber-400 bg-amber-950/40 text-amber-200"
+                : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white"
+            }`}
           >
-            Clear denial target
+            {armed === "clear" ? "Tap again to clear target" : "Clear denial target"}
           </button>
         </div>
 
@@ -312,6 +657,61 @@ function QuickButton({
   );
 }
 
+function FineRow({
+  fine,
+  disabled,
+  voidArmed,
+  onMarkPaid,
+  onVoid,
+}: {
+  fine: PunishmentWithRow;
+  disabled?: boolean;
+  voidArmed: boolean;
+  onMarkPaid: (rowIndex: number, label: string) => void;
+  onVoid: (rowIndex: number, label: string) => void;
+}) {
+  const ruleLabel = fine.ruleId ? HARLEY_RULES[fine.ruleId as HarleyRuleId]?.label : null;
+  const label = fine.reason || ruleLabel || "Fine";
+  return (
+    <li className="flex items-center gap-2 text-xs">
+      <span className="text-zinc-500 font-mono tabular-nums w-16 shrink-0">
+        {fine.date.slice(5)}
+      </span>
+      <span className="font-mono tabular-nums text-amber-300 w-12 shrink-0">
+        ${fine.amount}
+      </span>
+      <span className="flex-1 text-zinc-300 truncate" title={label}>
+        {label}
+        {ruleLabel && fine.reason && (
+          <span className="text-zinc-600"> · {ruleLabel}</span>
+        )}
+      </span>
+      <button
+        type="button"
+        onClick={() => onMarkPaid(fine.rowIndex, label)}
+        disabled={disabled}
+        title="Mark paid"
+        className="px-2 py-1 text-[10px] uppercase tracking-widest border border-emerald-800 text-emerald-300 hover:border-emerald-400 hover:bg-emerald-950/40 transition-colors disabled:opacity-40"
+      >
+        ✓
+      </button>
+      <button
+        type="button"
+        onClick={() => onVoid(fine.rowIndex, label)}
+        disabled={disabled}
+        title={voidArmed ? "Tap again to void" : "Void (delete row)"}
+        className={`px-2 py-1 text-[10px] uppercase tracking-widest border transition-colors disabled:opacity-40 ${
+          voidArmed
+            ? "border-rose-400 bg-rose-950/60 text-rose-200"
+            : "border-zinc-700 text-zinc-500 hover:border-rose-500 hover:text-rose-300"
+        }`}
+      >
+        {voidArmed ? "↺" : "✕"}
+      </button>
+    </li>
+  );
+}
+
 function describeEndDate(endDate: string | null): string | null {
   if (!endDate) return null;
   const ms = Date.parse(endDate);
@@ -320,5 +720,31 @@ function describeEndDate(endDate: string | null): string | null {
   if (diff <= 0) return "Target has passed.";
   const days = Math.floor(diff / 86_400_000);
   const hours = Math.floor((diff % 86_400_000) / 3_600_000);
-  return `${days}d ${hours}h from now`;
+  if (days >= 1) return `${days}d ${hours}h from now`;
+  const minutes = Math.floor((diff % 3_600_000) / 60_000);
+  return `${hours}h ${minutes}m from now`;
+}
+
+/**
+ * "Sat 6 Jun · 11:50 PM Sydney" — human-readable Sydney wall-clock.
+ * Source endDate is an ISO with offset; Intl picks up the moment-in-time
+ * and renders in the Australia/Sydney zone regardless of the offset.
+ */
+function humanizeEndDate(endDate: string): string {
+  const ms = Date.parse(endDate);
+  if (isNaN(ms)) return endDate;
+  const d = new Date(ms);
+  const datePart = new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Sydney",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).format(d);
+  const timePart = new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Sydney",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(d);
+  return `${datePart} · ${timePart} Sydney`;
 }
