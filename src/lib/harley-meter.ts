@@ -24,14 +24,13 @@ import {
 } from "./sheets";
 import { getHarleyTaskWindow, isCalendarConfigured } from "./calendar";
 
-const WAKE_BY_MIN = 6 * 60 + 30;       // 06:30
-const BED_BY_MIN = 22 * 60 + 30;       // 22:30
-const GYM_TARGET_PER_WEEK = 4;
-const STEPS_TARGET_PER_WEEK = 70_000;
-const WATER_TARGET_ML_PER_DAY = 3_300;
-const HARLEY_TASK_TARGET_PER_WEEK = 4;
-
-const WINDOW_DAYS = 7;
+export const WAKE_BY_MIN = 6 * 60 + 30;       // 06:30
+export const BED_BY_MIN = 22 * 60 + 30;       // 22:30
+export const GYM_TARGET_PER_WEEK = 4;
+export const STEPS_TARGET_PER_WEEK = 70_000;
+export const WATER_TARGET_ML_PER_DAY = 3_300;
+export const HARLEY_TASK_TARGET_PER_WEEK = 4;
+export const WINDOW_DAYS = 7;
 
 /**
  * Parse "HH:MM" / "H:MM" to minutes-since-midnight. Returns null on
