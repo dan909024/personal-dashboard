@@ -129,7 +129,9 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
             />
             {data.orgasmAllowed === "yes" ? "Allowed" : "Denied"}
           </button>
-          {data.orgasmAllowed === "no" && <DenialClock />}
+          {data.orgasmAllowed === "no" && (
+            <DenialClock totalEdgesEver={data.totalEdgesEver} />
+          )}
         </div>
       </div>
 
