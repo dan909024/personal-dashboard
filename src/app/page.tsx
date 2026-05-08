@@ -212,12 +212,13 @@ export default async function Dashboard({
     : allowed
     ? "url('/backgrounds/allowed.jpg')"
     : "url('/backgrounds/denied.jpg')";
-  // Warm rose overlay when allowed, cool slate when denied; tile contrast still good.
+  // Warm rose overlay when allowed, cool slate when denied. Lower opacity than
+  // before so Harley actually shows through; vignette below restores tile contrast.
   const overlayClass = !configured
-    ? "bg-black/55"
+    ? "bg-black/35"
     : allowed
-    ? "bg-rose-950/55"
-    : "bg-slate-950/65";
+    ? "bg-rose-950/30"
+    : "bg-slate-950/40";
 
   return (
     <div
@@ -225,8 +226,32 @@ export default async function Dashboard({
       style={{ backgroundImage }}
     >
       <div className={`absolute inset-0 ${overlayClass} pointer-events-none`} />
+      {/* Radial vignette: clearer in the center (where Harley's face sits),
+          darker at the edges so tile text stays legible. */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, transparent 0%, transparent 35%, rgba(0,0,0,0.55) 100%)",
+        }}
+      />
 
-      <div className="relative z-10">
+      {/* Coach panel — fixed right strip on lg+, fades into the page on its left edge. */}
+      <div
+        aria-hidden
+        className="hidden lg:block fixed top-0 right-0 bottom-0 w-[320px] bg-cover bg-center pointer-events-none z-0"
+        style={{ backgroundImage: "url('/coach.jpg')" }}
+      >
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(to right, rgba(10,10,10,0.95) 0%, rgba(10,10,10,0.35) 28%, transparent 55%)",
+          }}
+        />
+      </div>
+
+      <div className="relative z-10 lg:mr-[320px]">
         {/* Setup banner if env not configured */}
         {!configured && (
           <div className="w-full bg-amber-900/80 backdrop-blur-sm border-b border-amber-700 px-4 py-2 text-xs text-amber-100">
