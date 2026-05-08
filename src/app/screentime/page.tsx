@@ -76,6 +76,9 @@ export default async function ScreentimePage() {
           </Link>
         </div>
 
+        <IphoneLauncher />
+
+
         {groups.length === 0 ? (
           <div className="border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4">
             <p className="text-sm text-zinc-400">No screen time data in the last 7 days.</p>
@@ -112,6 +115,69 @@ export default async function ScreentimePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * iPhone Screen Time launcher. The dashboard cannot read iPhone usage
+ * data directly (Apple locks it behind the Family Controls entitlement),
+ * so visibility lives outside this dashboard. This tile is a one-tap
+ * jump to wherever the canonical iPhone view lives — Apple Family
+ * Sharing if Harley uses Apple, or a paid SaaS web dashboard otherwise.
+ *
+ * Set IPHONE_SCREENTIME_URL in Vercel env once you've picked a tool.
+ * The tile adapts copy based on whether the URL points to apple.com,
+ * qustodio.com, or anything else.
+ */
+function IphoneLauncher() {
+  const url = process.env.IPHONE_SCREENTIME_URL || "";
+  if (!url) {
+    return (
+      <section className="border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4 mb-5">
+        <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+          iPhone Screen Time
+        </p>
+        <p className="text-sm text-zinc-400">
+          Not configured. Apple's Screen Time data isn't readable from this
+          dashboard's server (Apple locks it behind the Family Controls
+          entitlement), so iPhone visibility lives in an external tool.
+        </p>
+        <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-3">
+          To wire up
+        </p>
+        <p className="text-xs text-zinc-400 mt-1">
+          Set <code className="bg-black/30 px-1">IPHONE_SCREENTIME_URL</code>{" "}
+          in Vercel env. Examples: Apple Family Sharing on iCloud Web, the
+          Qustodio parent dashboard, OurPact, etc.
+        </p>
+      </section>
+    );
+  }
+  let label = "iPhone Screen Time";
+  let helper = "Open the canonical iPhone Screen Time view.";
+  if (url.includes("apple.com") || url.includes("icloud.com")) {
+    label = "iPhone Screen Time — Apple Family Sharing";
+    helper = "Free, native, best privacy. Usage durations only.";
+  } else if (url.includes("qustodio")) {
+    label = "iPhone Screen Time — Qustodio";
+    helper = "Web dashboard. Configure as time-tracking-only.";
+  } else if (url.includes("ourpact")) {
+    label = "iPhone Screen Time — OurPact";
+    helper = "Web dashboard.";
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4 mb-5 hover:border-[#333] transition-colors"
+    >
+      <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2 flex items-center justify-between">
+        {label}
+        <span className="text-zinc-600 normal-case tracking-normal">open →</span>
+      </p>
+      <p className="text-xs text-zinc-500">{helper}</p>
+    </a>
   );
 }
 
