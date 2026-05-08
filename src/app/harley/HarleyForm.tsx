@@ -4,8 +4,10 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { HARLEY_RULES, type HarleyRuleId } from "@/lib/harley-rules";
-import type { PunishmentWithRow } from "@/lib/sheets";
+import type { GoddessAuditEntry, PunishmentWithRow } from "@/lib/sheets";
+import type { HarleyRuleStatus } from "@/lib/harley-meter";
 import {
+  addCalendarTaskAction,
   addFineAction,
   clearAllUnpaidFinesAction,
   clearDenialAction,
@@ -14,6 +16,7 @@ import {
   messageDanielAction,
   setDenialDateAction,
   setDoubleNextMonthAction,
+  setHardModeAction,
   setOrgasmAllowedAdminAction,
   voidFineAction,
 } from "./actions";
@@ -22,7 +25,9 @@ type ActionResult =
   | { ok: true }
   | { ok: false; error: string }
   | { ok: true; newEndDate: string }
-  | { ok: true; cleared: number };
+  | { ok: true; cleared: number }
+  | { ok: true; finalAmount: number; doubled: boolean }
+  | { ok: true; eventId: string; htmlLink: string | null };
 
 type SyncResult = {
   ok: boolean;
@@ -40,14 +45,24 @@ export function HarleyForm({
   owedHarley,
   recentFines,
   doubleNextMonth,
+  hardMode,
+  denialStartedAt,
   harleyMeter,
+  ruleDetail,
+  calendarConfigured,
+  auditEntries,
 }: {
   endDate: string | null;
   allowed: "yes" | "no";
   owedHarley: number;
   recentFines: PunishmentWithRow[];
   doubleNextMonth: boolean;
+  hardMode: boolean;
+  denialStartedAt: string | null;
   harleyMeter: number;
+  ruleDetail: HarleyRuleStatus[];
+  calendarConfigured: boolean;
+  auditEntries: GoddessAuditEntry[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -63,6 +78,8 @@ export function HarleyForm({
   const [armed, setArmed] = useState<string | null>(null);
   const [messageBody, setMessageBody] = useState("");
   const [messageSending, setMessageSending] = useState(false);
+  const [calendarSummary, setCalendarSummary] = useState("");
+  const [calendarWhen, setCalendarWhen] = useState("");
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -171,6 +188,41 @@ export function HarleyForm({
     );
   };
 
+  const onToggleHardMode = () => {
+    armOrFire(hardMode ? "hardmode-off" : "hardmode-on", () =>
+      run(
+        hardMode ? "Hard mode off" : "Hard mode ON",
+        () => setHardModeAction(!hardMode)
+      )
+    );
+  };
+
+  const onAddCalendarTask = () => {
+    if (!calendarSummary.trim()) {
+      flash("Task title?");
+      return;
+    }
+    if (!calendarWhen) {
+      flash("Pick a date/time");
+      return;
+    }
+    run("Task added ✓", () =>
+      addCalendarTaskAction(calendarSummary, calendarWhen).then((r) => {
+        if (r.ok) {
+          setCalendarSummary("");
+          setCalendarWhen("");
+        }
+        return r;
+      })
+    );
+  };
+
+  const onPrefillFineForRule = (ruleId: HarleyRuleId, label: string) => {
+    setFineRule(ruleId);
+    setFineReason(label);
+    flash(`Prefilled: ${label}`);
+  };
+
   const onMessageDaniel = async () => {
     const text = messageBody.trim();
     if (!text) {
@@ -235,15 +287,30 @@ export function HarleyForm({
           </p>
 
           {/* Status pill — visually dominant */}
-          <div
-            className={`flex items-center gap-2 mb-3 ${
-              allowed === "yes" ? "text-emerald-300" : "text-rose-300"
-            }`}
-          >
-            <span className="text-2xl leading-none">●</span>
-            <span className="text-2xl font-bold uppercase tracking-wider">
-              {allowed === "yes" ? "Allowed" : "Denied"}
-            </span>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div
+              className={`flex items-center gap-2 ${
+                allowed === "yes" ? "text-emerald-300" : "text-rose-300"
+              }`}
+            >
+              <span className="text-2xl leading-none">●</span>
+              <span className="text-2xl font-bold uppercase tracking-wider">
+                {allowed === "yes" ? "Allowed" : "Denied"}
+              </span>
+              {allowed === "no" && denialStartedAt && (
+                <span
+                  className="text-xs text-zinc-500 ml-1"
+                  title={denialStartedAt}
+                >
+                  · {daysSince(denialStartedAt)}d
+                </span>
+              )}
+            </div>
+            {hardMode && (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest border border-amber-500 bg-amber-950/60 text-amber-200">
+                Hard mode
+              </span>
+            )}
           </div>
 
           {/* Countdown — promoted to hero */}
@@ -328,6 +395,49 @@ export function HarleyForm({
           </div>
         </div>
 
+        {/* At-risk rules */}
+        {ruleDetail.length > 0 && (
+          <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+            <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+              Rule status · this week
+            </p>
+            <p className="text-[11px] text-zinc-500 mb-3 italic">
+              Tap a failing rule to prefill a fine for it.
+            </p>
+            <ul className="space-y-1">
+              {ruleDetail.map((r) => (
+                <li
+                  key={r.id}
+                  className="flex items-center gap-2 text-xs"
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      r.state === "met"
+                        ? "bg-emerald-400"
+                        : r.state === "at-risk"
+                        ? "bg-amber-400"
+                        : "bg-rose-400"
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onPrefillFineForRule(r.id, r.label)}
+                    disabled={isPending}
+                    className={`flex-1 text-left truncate hover:text-white transition-colors ${
+                      r.state === "met" ? "text-zinc-500" : "text-zinc-300"
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                  <span className="font-mono tabular-nums text-zinc-500 w-10 text-right">
+                    {Math.round(r.score * 100)}%
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Fines */}
         <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
           <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
@@ -336,6 +446,9 @@ export function HarleyForm({
           <p className="text-[11px] text-zinc-500 mb-3 italic">
             Adds a row to Punishments. Optional reason + rule attach
             provenance. The OWED HARLEY tile updates within a minute.
+            {hardMode && (
+              <span className="text-amber-300"> Hard mode 2× ON.</span>
+            )}
           </p>
 
           {/* Quick amounts */}
@@ -393,9 +506,9 @@ export function HarleyForm({
             className="w-full text-sm bg-black/40 border border-purple-900 text-zinc-100 px-2 py-2 mb-3 focus:outline-none focus:border-purple-500 [color-scheme:dark]"
           >
             <option value="">Manual fine (no rule)</option>
-            {Object.values(HARLEY_RULES).map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.label}
+            {(Object.keys(HARLEY_RULES) as HarleyRuleId[]).map((id) => (
+              <option key={id} value={id}>
+                {HARLEY_RULES[id].label}
               </option>
             ))}
           </select>
@@ -537,6 +650,44 @@ export function HarleyForm({
           )}
         </div>
 
+        {/* Add calendar task */}
+        {calendarConfigured && (
+          <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+            <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+              Add calendar task
+            </p>
+            <p className="text-[11px] text-zinc-500 mb-3 italic">
+              Lands on Daniel’s shared calendar as a Harley-authored event.
+              Counts toward the harley-tasks rule once its start time passes.
+            </p>
+            <input
+              type="text"
+              value={calendarSummary}
+              onChange={(e) => setCalendarSummary(e.target.value)}
+              placeholder="Task title (e.g. Send proof photo)"
+              maxLength={200}
+              className="w-full text-sm bg-black/40 border border-purple-900 text-zinc-100 px-2 py-2 mb-2 focus:outline-none focus:border-purple-500"
+            />
+            <input
+              type="datetime-local"
+              value={calendarWhen}
+              onChange={(e) => setCalendarWhen(e.target.value)}
+              className="w-full text-sm bg-black/40 border border-purple-900 text-zinc-100 p-2 mb-2 focus:outline-none focus:border-purple-500 [color-scheme:dark]"
+            />
+            <button
+              type="button"
+              onClick={onAddCalendarTask}
+              disabled={isPending || !calendarSummary.trim() || !calendarWhen}
+              className="w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border border-purple-700 bg-purple-950/40 text-purple-200 hover:border-purple-400 hover:bg-purple-900/60 transition-colors disabled:opacity-50"
+            >
+              Create task
+            </button>
+            <p className="text-[10px] text-zinc-500 mt-2">
+              Time in Sydney. 30-minute default duration.
+            </p>
+          </div>
+        )}
+
         {/* Message Daniel */}
         <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
           <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
@@ -625,6 +776,63 @@ export function HarleyForm({
             {armed === "clear" ? "Tap again to clear target" : "Clear denial target"}
           </button>
         </div>
+
+        {/* Hard mode + audit log */}
+        <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
+            Hard mode
+          </p>
+          <p className="text-[11px] text-zinc-500 mb-3 italic">
+            Doubles every fine while ON: manual fines you add here, the
+            monthly fee, and any auto rule-eval fines that fire. Stacks with
+            “Double next monthly fee” for a one-time 4×.
+          </p>
+          <button
+            type="button"
+            onClick={onToggleHardMode}
+            disabled={isPending}
+            className={`w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-50 ${
+              hardMode
+                ? armed === "hardmode-off"
+                  ? "border-amber-300 bg-amber-900/70 text-amber-100"
+                  : "border-amber-500 bg-amber-950/60 text-amber-200"
+                : armed === "hardmode-on"
+                ? "border-amber-300 bg-amber-900/70 text-amber-100"
+                : "border-zinc-700 text-zinc-400 hover:border-amber-500 hover:text-amber-300"
+            }`}
+          >
+            {hardMode
+              ? armed === "hardmode-off"
+                ? "Tap again to turn off"
+                : "Hard mode is ON · turn off"
+              : armed === "hardmode-on"
+              ? "Tap again to enable"
+              : "Enable hard mode"}
+          </button>
+        </div>
+
+        {auditEntries.length > 0 && (
+          <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+            <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
+              Recent panel activity
+            </p>
+            <ul className="space-y-1 text-xs">
+              {auditEntries.map((e, i) => (
+                <li key={i} className="flex items-baseline gap-2">
+                  <span className="text-zinc-600 font-mono tabular-nums w-12 shrink-0">
+                    {timeAgo(e.timestamp)}
+                  </span>
+                  <span className="text-zinc-400 uppercase tracking-wider text-[10px] w-20 shrink-0">
+                    {e.action}
+                  </span>
+                  <span className="text-zinc-300 truncate" title={e.detail}>
+                    {e.detail}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {toast && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-purple-900 border border-purple-500 text-white text-sm rounded shadow-lg">
@@ -747,4 +955,23 @@ function humanizeEndDate(endDate: string): string {
     hour12: true,
   }).format(d);
   return `${datePart} · ${timePart} Sydney`;
+}
+
+function daysSince(iso: string): number {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return 0;
+  return Math.max(0, Math.floor((Date.now() - ms) / 86_400_000));
+}
+
+/** "5m" / "2h" / "3d" — compact relative time for the audit list. */
+function timeAgo(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "";
+  const diffSec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (diffSec < 60) return `${diffSec}s`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h`;
+  return `${Math.floor(diffHr / 24)}d`;
 }

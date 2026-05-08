@@ -4,7 +4,9 @@ import { cookies } from "next/headers";
 import { revalidatePath, revalidateTag } from "next/cache";
 import {
   DENIAL_END_DATE_TAG,
+  appendGoddessAudit,
   appendPunishment,
+  getSetting,
   markAllUnpaidPaid,
   markPunishmentPaid,
   readDenialEndDate,
@@ -12,6 +14,10 @@ import {
   setSetting,
   voidPunishment,
 } from "@/lib/sheets";
+import {
+  createHarleyCalendarEvent,
+  isCalendarConfigured,
+} from "@/lib/calendar";
 import { HARLEY_RULES, type HarleyRuleId } from "@/lib/harley-rules";
 import { verifyJWT } from "@/lib/jwt";
 import { sendDanTelegram } from "@/lib/telegram";
@@ -93,6 +99,7 @@ export async function extendDenialAction(
   const newEndDate = formatSydneyOffsetISO(new Date(newMs));
   try {
     await setDenialEndDate(newEndDate);
+    await appendGoddessAudit("extend", `+${hoursOffset}h → ${newEndDate}`);
     revalidateAll();
     return { ok: true, newEndDate };
   } catch (e) {
@@ -113,6 +120,7 @@ export async function setDenialDateAction(
   const newEndDate = `${isoLocal}:00${currentSydneyOffsetSuffix()}`;
   try {
     await setDenialEndDate(newEndDate);
+    await appendGoddessAudit("set-date", newEndDate);
     revalidateAll();
     return { ok: true, newEndDate };
   } catch (e) {
@@ -126,6 +134,7 @@ export async function clearDenialAction(): Promise<
   if (!(await authorized())) return { ok: false, error: "unauthorized" };
   try {
     await setDenialEndDate("");
+    await appendGoddessAudit("clear-target", "");
     revalidateAll();
     return { ok: true };
   } catch (e) {
@@ -141,7 +150,27 @@ export async function setOrgasmAllowedAdminAction(
     return { ok: false, error: "invalid value" };
   }
   try {
+    // Stamp denial_started_at on the yes→no transition so the panel
+    // can show a "denied for N days" counter. We only stamp on the
+    // transition (not on every "no" write) so the counter accurately
+    // reflects when this denial run actually started.
+    if (value === "no") {
+      const prev = String(
+        ((await getSetting("orgasm_allowed")) ?? "")
+      ).trim().toLowerCase();
+      if (prev !== "no") {
+        await setSetting(
+          "denial_started_at",
+          new Date().toISOString(),
+          "harley-admin"
+        );
+      }
+    }
     await setSetting("orgasm_allowed", value, "harley-admin");
+    await appendGoddessAudit(
+      value === "yes" ? "allow" : "deny",
+      ""
+    );
     revalidateAll();
     return { ok: true };
   } catch (e) {
@@ -155,7 +184,9 @@ export async function addFineAction(
   amount: number,
   reason: string,
   ruleId: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; finalAmount: number; doubled: boolean } | { ok: false; error: string }
+> {
   if (!(await authorized())) return { ok: false, error: "unauthorized" };
   if (!Number.isFinite(amount) || amount <= 0) {
     return { ok: false, error: "amount must be > 0" };
@@ -170,15 +201,28 @@ export async function addFineAction(
     ruleId && Object.prototype.hasOwnProperty.call(HARLEY_RULES, ruleId)
       ? (ruleId as HarleyRuleId)
       : "";
+  // Hard-mode doubles every manual fine until disabled.
+  const hardMode =
+    String((await getSetting("hard_mode")) ?? "")
+      .trim()
+      .toLowerCase() === "yes";
+  const finalAmount = hardMode ? amount * 2 : amount;
+  const finalReason = hardMode
+    ? `${trimmedReason || "Manual fine"} (hard-mode 2×)`
+    : trimmedReason || "Manual fine";
   try {
     await appendPunishment({
-      amount,
-      reason: trimmedReason || "Manual fine",
+      amount: finalAmount,
+      reason: finalReason,
       setBy: "Harley (panel)",
       ruleId: validRuleId,
     });
+    await appendGoddessAudit(
+      "fine",
+      `$${finalAmount}${hardMode ? " (2×)" : ""} · ${finalReason}`
+    );
     revalidateAll();
-    return { ok: true };
+    return { ok: true, finalAmount, doubled: hardMode };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
@@ -193,6 +237,7 @@ export async function markFinePaidAction(
   }
   try {
     await markPunishmentPaid(rowIndex);
+    await appendGoddessAudit("mark-paid", `row ${rowIndex}`);
     revalidateAll();
     return { ok: true };
   } catch (e) {
@@ -209,6 +254,7 @@ export async function voidFineAction(
   }
   try {
     await voidPunishment(rowIndex);
+    await appendGoddessAudit("void-fine", `row ${rowIndex}`);
     revalidateAll();
     return { ok: true };
   } catch (e) {
@@ -222,6 +268,7 @@ export async function clearAllUnpaidFinesAction(): Promise<
   if (!(await authorized())) return { ok: false, error: "unauthorized" };
   try {
     const cleared = await markAllUnpaidPaid();
+    await appendGoddessAudit("reset-balance", `${cleared} row(s)`);
     revalidateAll();
     return { ok: true, cleared };
   } catch (e) {
@@ -235,6 +282,21 @@ export async function setDoubleNextMonthAction(
   if (!(await authorized())) return { ok: false, error: "unauthorized" };
   try {
     await setSetting("double_next_month", enabled ? "yes" : "no", "harley-admin");
+    await appendGoddessAudit("double-next-month", enabled ? "ON" : "OFF");
+    revalidateAll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function setHardModeAction(
+  enabled: boolean
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  try {
+    await setSetting("hard_mode", enabled ? "yes" : "no", "harley-admin");
+    await appendGoddessAudit("hard-mode", enabled ? "ON" : "OFF");
     revalidateAll();
     return { ok: true };
   } catch (e) {
@@ -257,7 +319,49 @@ export async function messageDanielAction(
   if (!text) return { ok: false, error: "empty message" };
   try {
     const result = await sendDanTelegram(`🩷 Goddess:\n${text}`);
+    await appendGoddessAudit(
+      "message-daniel",
+      `${result.sent ? "sent" : "skipped"}: ${text.slice(0, 80)}`
+    );
+    revalidateAll();
     return { ok: true, sent: result.sent };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+// ---------- Calendar tasks ----------
+
+export async function addCalendarTaskAction(
+  summary: string,
+  whenLocal: string
+): Promise<
+  { ok: true; eventId: string; htmlLink: string | null }
+  | { ok: false; error: string }
+> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  if (!isCalendarConfigured()) {
+    return { ok: false, error: "calendar not configured" };
+  }
+  const trimmed = summary.trim().slice(0, 200);
+  if (!trimmed) return { ok: false, error: "empty summary" };
+  // datetime-local input format YYYY-MM-DDTHH:MM. Stamp with the current
+  // Sydney offset so Google interprets the wall-clock as Sydney-local.
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(whenLocal)) {
+    return { ok: false, error: "invalid datetime" };
+  }
+  const startISO = `${whenLocal}:00${currentSydneyOffsetSuffix()}`;
+  try {
+    const res = await createHarleyCalendarEvent({
+      summary: trimmed,
+      startISO,
+    });
+    await appendGoddessAudit(
+      "add-calendar-task",
+      `${trimmed} @ ${startISO}`
+    );
+    revalidateAll();
+    return { ok: true, eventId: res.eventId, htmlLink: res.htmlLink };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
