@@ -42,6 +42,9 @@ const NEW_KEYS: Array<keyof typeof DEFAULT_WEAKNESS_SETTINGS> = [
   "worship_weight_per_minute",
   "self_help_weight_per_minute",
   "slip_penalty_points",
+  "nutrition_protein_target_g",
+  "nutrition_calorie_target",
+  "nutrition_water_target_ml",
 ];
 
 async function main() {

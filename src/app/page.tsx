@@ -10,11 +10,13 @@ import {
   getDashboardScreentime,
   getDashboardWhoopWorkouts,
   getDashboardTransactions,
+  getDashboardNutrition,
   type SystemHealth,
   type SleepEdit,
   type DashboardAppleHealth,
   type DashboardWhoopWorkouts,
   type DashboardTransactions,
+  type DashboardNutrition,
   type ScreenTimeRow,
   type HarleyBalance,
 } from "@/lib/sheets";
@@ -164,6 +166,7 @@ export default async function Dashboard({
     screentime,
     weakness,
     transactions,
+    nutrition,
   ] = await Promise.all([
     configured ? getOpenTasks(3) : Promise.resolve([]),
     configured ? getHarleyBalance() : Promise.resolve(null as HarleyBalance | null),
@@ -185,6 +188,9 @@ export default async function Dashboard({
     configured
       ? getDashboardTransactions()
       : Promise.resolve(null as DashboardTransactions | null),
+    configured
+      ? getDashboardNutrition()
+      : Promise.resolve(null as DashboardNutrition | null),
   ]);
 
   const calendarConfigured = isCalendarConfigured();
@@ -314,6 +320,7 @@ export default async function Dashboard({
                   value={whoop.wakeTime || "—"}
                   badge={wakeBadge(whoop.wakeTime)}
                   badgeColor={wakeBadge(whoop.wakeTime) === "✅" ? "text-green-400" : "text-amber-400"}
+                  badgeTooltip={wakeTooltip(whoop.wakeTime)}
                 />
                 <StatRow label="Bed" value={whoop.bedTime || "—"} />
                 <StatRow
@@ -348,7 +355,7 @@ export default async function Dashboard({
           </Tile>
 
           <Tile title="NUTRITION">
-            <NotTrackedYet />
+            <NutritionTile data={nutrition} configured={configured} />
           </Tile>
 
           <Link
@@ -492,6 +499,18 @@ function wakeBadge(wake: string): string | undefined {
   if (!m) return undefined;
   const minutes = Number(m[1]) * 60 + Number(m[2]);
   return minutes < 6 * 60 + 30 ? "✅" : "⚠";
+}
+
+function wakeTooltip(wake: string): string | undefined {
+  if (!wake) return undefined;
+  const m = wake.match(/^(\d{2}):(\d{2})$/);
+  if (!m) return undefined;
+  const minutes = Number(m[1]) * 60 + Number(m[2]);
+  if (minutes < 6 * 60 + 30) {
+    return `Up by 06:30 — wake rule met. Counts as a ✅ toward this week's Harley Meter (1/6 of the score).`;
+  }
+  const lateMin = minutes - (6 * 60 + 30);
+  return `Woke at ${wake} — ${lateMin} min past the 06:30 target. Today fails the wake rule, dropping the Harley Meter (1/6 weight, scored over the rolling 7-day window). See /rules for the full scoring breakdown.`;
 }
 
 function fmtSleep(sleep: string): string {
@@ -640,6 +659,98 @@ function GymTileBody({
   );
 }
 
+
+function NutritionTile({
+  data,
+  configured,
+}: {
+  data: DashboardNutrition | null;
+  configured: boolean;
+}) {
+  if (!configured) {
+    return (
+      <>
+        <NutritionRow label="Protein" value="148" target="221" unit="g" />
+        <NutritionRow label="Calories" value="2210" target="2940" unit="kcal" />
+        <NutritionRow label="Water" value="2.4" target="3.35" unit="L" />
+      </>
+    );
+  }
+  if (!data) {
+    return <NoData />;
+  }
+  return (
+    <>
+      <NutritionRow
+        label="Protein"
+        value={String(data.proteinG)}
+        target={String(data.proteinTarget)}
+        unit="g"
+        pct={data.proteinG / data.proteinTarget}
+      />
+      <NutritionRow
+        label="Calories"
+        value={String(data.caloriesConsumed)}
+        target={String(data.calorieTarget)}
+        unit="kcal"
+        pct={data.caloriesConsumed / data.calorieTarget}
+      />
+      <NutritionRow
+        label="Water"
+        value={(data.waterMl / 1000).toFixed(2)}
+        target={(data.waterTargetMl / 1000).toFixed(2)}
+        unit="L"
+        pct={data.waterMl / data.waterTargetMl}
+      />
+      {!data.hasToday && (
+        <p className="text-[10px] text-amber-400/80 mt-2">
+          showing {data.date} — no data for today yet
+        </p>
+      )}
+    </>
+  );
+}
+
+function NutritionRow({
+  label,
+  value,
+  target,
+  unit,
+  pct,
+}: {
+  label: string;
+  value: string;
+  target: string;
+  unit: string;
+  pct?: number;
+}) {
+  const ratio = Math.max(0, Math.min(1, pct ?? 0));
+  const barColor =
+    ratio >= 0.95
+      ? "bg-green-500"
+      : ratio >= 0.6
+      ? "bg-amber-400"
+      : "bg-zinc-500";
+  return (
+    <div className="mb-1.5 last:mb-0">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="text-zinc-400 uppercase tracking-wider text-[10px]">
+          {label}
+        </span>
+        <span className="font-mono text-zinc-200">
+          {value}
+          <span className="text-zinc-500"> / {target} {unit}</span>
+        </span>
+      </div>
+      <div className="w-full bg-[#1a1a1a] h-1 mt-1">
+        <div
+          className={`${barColor} h-1 transition-all`}
+          style={{ width: `${ratio * 100}%` }}
+        />
+      </div>
+    </div>
+  );
+}
 
 function fmtAmount(n: number, currency = "AUD"): string {
   if (!Number.isFinite(n)) return "—";
@@ -820,19 +931,37 @@ function StatRow({
   badge,
   badgeColor = "text-green-400",
   valueColor = "text-white",
+  badgeTooltip,
 }: {
   label: string;
   value: string;
   badge?: string;
   badgeColor?: string;
   valueColor?: string;
+  badgeTooltip?: string;
 }) {
   return (
     <div className="flex items-center justify-between py-0.5">
       <span className="text-[10px] text-zinc-500 uppercase tracking-wider">{label}</span>
       <span className="flex items-center gap-2">
         <span className={`text-sm font-semibold ${valueColor}`}>{value}</span>
-        {badge && <span className={`text-sm ${badgeColor}`}>{badge}</span>}
+        {badge &&
+          (badgeTooltip ? (
+            <span className="relative group cursor-help" tabIndex={0}>
+              <span className={`text-sm ${badgeColor}`} aria-describedby="badge-tip">
+                {badge}
+              </span>
+              <span
+                role="tooltip"
+                id="badge-tip"
+                className="pointer-events-none absolute right-0 top-full mt-2 z-20 w-64 border border-[#333] bg-[#0a0a0a] p-3 text-[11px] leading-relaxed text-zinc-300 shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+              >
+                {badgeTooltip}
+              </span>
+            </span>
+          ) : (
+            <span className={`text-sm ${badgeColor}`}>{badge}</span>
+          ))}
       </span>
     </div>
   );

@@ -87,6 +87,8 @@ export const TAB_SCHEMAS = {
     "Source",
     "Synced at",
     "Water (ml)",
+    "Protein (g)",
+    "Calories Consumed",
   ],
   "Whoop Workouts": [
     "Date",
@@ -1480,6 +1482,10 @@ export type AppleHealthRow = {
   source: string; // e.g. "ios-shortcut"
   syncedAt: string; // ISO
   waterMl?: number;
+  /** HealthKit dietaryProtein (g). Source: MyFitnessPal/Cronometer → HealthKit. */
+  proteinG?: number;
+  /** HealthKit dietaryEnergyConsumed (kcal). Distinct from activeCalories (burned). */
+  caloriesConsumed?: number;
 };
 
 /**
@@ -1494,7 +1500,7 @@ export async function appendAppleHealth(
   await ensureTab("Apple Health");
   const get = await client.spreadsheets.values.get({
     spreadsheetId: id,
-    range: "Apple Health!A1:H",
+    range: "Apple Health!A1:J",
     valueRenderOption: "UNFORMATTED_VALUE",
     dateTimeRenderOption: "FORMATTED_STRING",
   });
@@ -1508,6 +1514,8 @@ export async function appendAppleHealth(
     row.source,
     row.syncedAt,
     row.waterMl ?? "",
+    row.proteinG ?? "",
+    row.caloriesConsumed ?? "",
   ];
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i] || [];
@@ -1515,17 +1523,27 @@ export async function appendAppleHealth(
     const src = String(r[5] ?? "");
     if (d === row.date && src === row.source) {
       const sheetRow = i + 1;
-      // Preserve the prior water reading when this payload doesn't
-      // include one (Auto Export sometimes posts mid-day before water
-      // logging is up to date).
+      // Preserve prior nutrition readings when this payload doesn't
+      // include one (Auto Export sometimes posts mid-day before water /
+      // protein / calorie logging is up to date).
       const existing = r as (string | number)[];
       const merged = [...values];
       if (row.waterMl === undefined && existing[7] !== undefined && existing[7] !== "") {
         merged[7] = existing[7];
       }
+      if (row.proteinG === undefined && existing[8] !== undefined && existing[8] !== "") {
+        merged[8] = existing[8];
+      }
+      if (
+        row.caloriesConsumed === undefined &&
+        existing[9] !== undefined &&
+        existing[9] !== ""
+      ) {
+        merged[9] = existing[9];
+      }
       await client.spreadsheets.values.update({
         spreadsheetId: id,
-        range: `Apple Health!A${sheetRow}:H${sheetRow}`,
+        range: `Apple Health!A${sheetRow}:J${sheetRow}`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [merged] },
       });
@@ -1557,7 +1575,7 @@ export async function getRecentAppleHealth(days = 7): Promise<AppleHealthRow[]> 
     const client = sheetsClient();
     const res = await client.spreadsheets.values.get({
       spreadsheetId: sheetId(),
-      range: "Apple Health!A1:H",
+      range: "Apple Health!A1:J",
       valueRenderOption: "UNFORMATTED_VALUE",
       dateTimeRenderOption: "FORMATTED_STRING",
     });
@@ -1581,6 +1599,9 @@ export async function getRecentAppleHealth(days = 7): Promise<AppleHealthRow[]> 
         source: String(r[5] ?? ""),
         syncedAt: String(r[6] ?? ""),
         waterMl: r[7] === "" || r[7] === undefined ? undefined : Number(r[7]) || 0,
+        proteinG: r[8] === "" || r[8] === undefined ? undefined : Number(r[8]) || 0,
+        caloriesConsumed:
+          r[9] === "" || r[9] === undefined ? undefined : Number(r[9]) || 0,
       });
     }
     out.sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -1770,6 +1791,74 @@ export const getDashboardAppleHealth = unstable_cache(
     };
   },
   ["dashboard:apple-health"],
+  { revalidate: 60 }
+);
+
+// ---------- Nutrition (protein / calories consumed / water) ----------
+
+export type DashboardNutrition = {
+  date: string;
+  proteinG: number;
+  caloriesConsumed: number;
+  waterMl: number;
+  proteinTarget: number;
+  calorieTarget: number;
+  waterTargetMl: number;
+  /** True when the latest reading came in today (Sydney). */
+  hasToday: boolean;
+};
+
+/**
+ * Today's dietary protein / calories / water from the Apple Health rows
+ * (one row per source per day — we take the max across sources for
+ * each metric, matching how steps and active-calories are aggregated).
+ * Falls back to the most recent day with any data when today is empty,
+ * but flags that via `hasToday=false` so the tile can dim.
+ */
+export const getDashboardNutrition = unstable_cache(
+  async (): Promise<DashboardNutrition> => {
+    const [recent, settings] = await Promise.all([
+      getRecentAppleHealth(7),
+      getWeaknessSettings(),
+    ]);
+    const today = todaySydneyISO();
+    // Pick the most recent date that has any nutrition data.
+    const byDate = new Map<string, AppleHealthRow[]>();
+    for (const r of recent) {
+      const list = byDate.get(r.date) || [];
+      list.push(r);
+      byDate.set(r.date, list);
+    }
+    const datesDesc = Array.from(byDate.keys()).sort().reverse();
+    let pickDate = "";
+    let proteinG = 0;
+    let caloriesConsumed = 0;
+    let waterMl = 0;
+    for (const d of datesDesc) {
+      const list = byDate.get(d) || [];
+      const p = list.reduce((m, r) => Math.max(m, r.proteinG ?? 0), 0);
+      const c = list.reduce((m, r) => Math.max(m, r.caloriesConsumed ?? 0), 0);
+      const w = list.reduce((m, r) => Math.max(m, r.waterMl ?? 0), 0);
+      if (p > 0 || c > 0 || w > 0) {
+        pickDate = d;
+        proteinG = p;
+        caloriesConsumed = c;
+        waterMl = w;
+        break;
+      }
+    }
+    return {
+      date: pickDate || today,
+      proteinG,
+      caloriesConsumed,
+      waterMl,
+      proteinTarget: settings.nutrition_protein_target_g,
+      calorieTarget: settings.nutrition_calorie_target,
+      waterTargetMl: settings.nutrition_water_target_ml,
+      hasToday: pickDate === today && (proteinG > 0 || caloriesConsumed > 0 || waterMl > 0),
+    };
+  },
+  ["dashboard:nutrition"],
   { revalidate: 60 }
 );
 
@@ -2501,6 +2590,12 @@ export type WeaknessSettings = {
    * meaningful chunk but stay weak. Cumulative score still floors at 0.
    */
   slip_penalty_points: number;
+  /** Daily protein target (g) for the NUTRITION tile progress bar. */
+  nutrition_protein_target_g: number;
+  /** Daily calories-consumed target (kcal) for the NUTRITION tile. */
+  nutrition_calorie_target: number;
+  /** Daily water target (ml) for the NUTRITION tile. */
+  nutrition_water_target_ml: number;
   phase_thresholds: Record<string, [number, number, string]>;
 };
 
@@ -2536,6 +2631,9 @@ export const DEFAULT_WEAKNESS_SETTINGS: WeaknessSettings = {
   worship_weight_per_minute: 5,
   self_help_weight_per_minute: 3,
   slip_penalty_points: 860,
+  nutrition_protein_target_g: 221,
+  nutrition_calorie_target: 2940,
+  nutrition_water_target_ml: 3350,
   phase_thresholds: DEFAULT_PHASE_THRESHOLDS,
 };
 
@@ -2558,6 +2656,9 @@ export const SETTINGS_SEED_ROWS: (string | number)[][] = [
   ["worship_weight_per_minute", 5, "", "system"],
   ["self_help_weight_per_minute", 3, "", "system"],
   ["slip_penalty_points", 860, "", "system"],
+  ["nutrition_protein_target_g", 221, "", "system"],
+  ["nutrition_calorie_target", 2940, "", "system"],
+  ["nutrition_water_target_ml", 3350, "", "system"],
   ["phase_thresholds", JSON.stringify(DEFAULT_PHASE_THRESHOLDS), "", "system"],
 ];
 
@@ -2672,6 +2773,18 @@ export async function getWeaknessSettings(): Promise<WeaknessSettings> {
     worship_weight_per_minute: num("worship_weight_per_minute", DEFAULT_WEAKNESS_SETTINGS.worship_weight_per_minute),
     self_help_weight_per_minute: num("self_help_weight_per_minute", DEFAULT_WEAKNESS_SETTINGS.self_help_weight_per_minute),
     slip_penalty_points: num("slip_penalty_points", DEFAULT_WEAKNESS_SETTINGS.slip_penalty_points),
+    nutrition_protein_target_g: num(
+      "nutrition_protein_target_g",
+      DEFAULT_WEAKNESS_SETTINGS.nutrition_protein_target_g
+    ),
+    nutrition_calorie_target: num(
+      "nutrition_calorie_target",
+      DEFAULT_WEAKNESS_SETTINGS.nutrition_calorie_target
+    ),
+    nutrition_water_target_ml: num(
+      "nutrition_water_target_ml",
+      DEFAULT_WEAKNESS_SETTINGS.nutrition_water_target_ml
+    ),
     phase_thresholds: phaseThresholds,
   };
 }
