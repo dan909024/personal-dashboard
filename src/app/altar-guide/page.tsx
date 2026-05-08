@@ -187,6 +187,16 @@ export default async function AltarGuidePage() {
             meditation, cold plunge, sauna — focused-on-self time. The
             anti-worship.
           </Bullet>
+          <Bullet
+            title="Slipped (came without permission)"
+            value={s ? `−${s.slip_penalty_points} per slip` : null}
+          >
+            Manual log on the tile (😔 button). Flat penalty, applied to
+            the day&apos;s gain. If he&apos;s in the lower part of the
+            curve the deduction floors his score at 0 — effectively a
+            reset. If he&apos;s deep in submission, he loses a meaningful
+            chunk but stays weak. Cumulative score never goes negative.
+          </Bullet>
         </Section>
 
         <Section title="What you control">
@@ -224,7 +234,8 @@ export default async function AltarGuidePage() {
             the past 30 days. Sharp upward spikes are brutal edge days.
             Downward dips are heavy workouts or self-help sessions
             outpacing the day&apos;s base climb. A vertical drop to zero
-            means an allowed orgasm reset the cycle.
+            means either an allowed orgasm reset the cycle, or a slip
+            penalty floored a low-curve day to zero.
           </p>
         </Section>
 
@@ -251,6 +262,7 @@ export default async function AltarGuidePage() {
               <Row k="calorie_burn_per_unit_above" v={fmt(s.calorie_burn_per_unit_above)} />
               <Row k="worship_weight_per_minute" v={fmt(s.worship_weight_per_minute)} />
               <Row k="self_help_weight_per_minute" v={fmt(s.self_help_weight_per_minute)} />
+              <Row k="slip_penalty_points" v={fmt(s.slip_penalty_points)} />
             </div>
           ) : (
             <p className="text-sm text-zinc-500 italic">

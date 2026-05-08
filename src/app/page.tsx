@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   getOpenTasks,
   getHarleyBalance,
@@ -9,16 +10,20 @@ import {
   getDashboardAppleHealth,
   getDashboardScreentime,
   getDashboardWhoopWorkouts,
+  getDashboardTransactions,
   type SystemHealth,
   type SleepEdit,
   type DashboardAppleHealth,
   type DashboardWhoopWorkouts,
+  type DashboardTransactions,
   type ScreenTimeRow,
   type HarleyBalance,
 } from "@/lib/sheets";
 import { getHarleyMeter } from "@/lib/harley-meter";
 import { getDashboardWeakness } from "@/lib/weakness";
 import { WeaknessAltarTile } from "@/components/tiles/WeaknessAltarTile";
+import { FinesTile } from "@/components/tiles/FinesTile";
+import { RulesManifestoTile } from "@/components/tiles/RulesManifestoTile";
 import { SyncButton } from "@/components/SyncButton";
 import {
   dedupeAppsPreferMac,
@@ -159,6 +164,7 @@ export default async function Dashboard({
     whoopWorkouts,
     screentime,
     weakness,
+    transactions,
   ] = await Promise.all([
     configured ? getOpenTasks(3) : Promise.resolve([]),
     configured ? getHarleyBalance() : Promise.resolve(null as HarleyBalance | null),
@@ -177,6 +183,9 @@ export default async function Dashboard({
       ? getDashboardScreentime()
       : Promise.resolve([] as ScreenTimeRow[]),
     configured ? getDashboardWeakness() : Promise.resolve(null),
+    configured
+      ? getDashboardTransactions()
+      : Promise.resolve(null as DashboardTransactions | null),
   ]);
 
   const phoneSummary = summarizeScreentime(screentime);
@@ -262,6 +271,16 @@ export default async function Dashboard({
               </label>
             ))}
           </div>
+        </div>
+
+        {/* Fines: this week (running) · last week · total owed */}
+        <div className="px-4 pt-4">
+          <FinesTile />
+        </div>
+
+        {/* Rules manifesto */}
+        <div className="px-4 pt-4">
+          <RulesManifestoTile />
         </div>
 
         {/* Dashboard grid */}
@@ -350,9 +369,16 @@ export default async function Dashboard({
           </Link>
 
           {/* Row 3 */}
-          <Tile title="MONEY">
-            <NotTrackedYet />
-          </Tile>
+          <Link
+            href="/transactions"
+            className="block border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4 hover:border-[#333] transition-colors"
+          >
+            <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3 flex items-center justify-between">
+              TRANSACTIONS
+              <span className="text-zinc-600 normal-case tracking-normal">details →</span>
+            </p>
+            <TransactionsTile configured={configured} data={transactions} />
+          </Link>
 
           <Tile title="OWED HARLEY">
             {configured && harleyBalance ? (
@@ -643,6 +669,89 @@ function GymTileBody({
   );
 }
 
+
+function fmtAmount(n: number, currency = "AUD"): string {
+  if (!Number.isFinite(n)) return "—";
+  const symbol = currency === "USD" ? "US$" : "$";
+  return `${symbol}${n.toLocaleString("en-AU", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function TransactionsTile({
+  configured,
+  data,
+}: {
+  configured: boolean;
+  data: DashboardTransactions | null;
+}) {
+  if (!configured) {
+    return (
+      <>
+        <Stat label="Today" value="$52.10" />
+        <Stat label="7d" value="$437.20" />
+        <p className="text-xs text-zinc-500 mt-2">Balance $2,180.55</p>
+      </>
+    );
+  }
+  if (!data || !data.hasAnyData) {
+    return (
+      <>
+        <p className="text-sm text-zinc-500">No Amex data yet</p>
+        <p className="text-[10px] text-zinc-600 uppercase tracking-widest mt-1">
+          Awaiting inbound emails
+        </p>
+      </>
+    );
+  }
+  const recent = data.charges.slice(0, 3);
+  return (
+    <>
+      <div className="mb-2 flex items-baseline gap-3">
+        <span>
+          <span className="text-[10px] text-zinc-500 uppercase tracking-wider">
+            Today{" "}
+          </span>
+          <span className="text-xl font-bold text-white">
+            {fmtAmount(data.todayChargeTotal)}
+          </span>
+        </span>
+        <span>
+          <span className="text-[10px] text-zinc-500 uppercase tracking-wider">
+            7d{" "}
+          </span>
+          <span className="text-sm font-semibold text-zinc-300">
+            {fmtAmount(data.sevenDayChargeTotal)}
+          </span>
+        </span>
+      </div>
+      {recent.length > 0 ? (
+        <div className="space-y-0.5 mb-2">
+          {recent.map((c) => (
+            <div
+              key={c.emailId}
+              className="flex items-center justify-between gap-2 text-xs text-zinc-300"
+            >
+              <span className="truncate">{c.merchant || "(unknown)"}</span>
+              <span className="font-mono shrink-0">
+                {fmtAmount(c.amount, c.currency)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {data.latestBalance ? (
+        <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
+          Balance{" "}
+          <span className="text-zinc-300 normal-case tracking-normal">
+            {fmtAmount(data.latestBalance.amount, data.latestBalance.currency)}
+          </span>
+        </p>
+      ) : null}
+    </>
+  );
+}
 
 function PhoneTile({
   configured,

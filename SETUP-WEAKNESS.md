@@ -58,23 +58,17 @@ score += gain   (floored at 0 — heavy gym days can pull the curve down)
 
 ### Edge curve — three zones
 
-Each within-day edge gets its own intensity multiplier that follows
-an inverted-U shape — first 5–10 edges *intensify* (each more impactful
-than the last), peak at the threshold, then *slow down* on each
-excess edge. On top of that, `cycle_decay` nibbles every edge in the
-cycle (across days), so spreading out vs piling in keeps the same
-intensity-position but a higher cycle factor.
+The first edge of the cycle is the most potent. Each subsequent edge
+fades on **two** axes: cycle position (across days) and within-day
+position. Above `brutal_bonus_threshold` edges in a day, a brutal
+multiplier escalates the whole day's edge contribution; past the
+multiplier plateau, additional edges add a flat linear amount.
 
-| Zone | Within-day index `d` | Multiplier on `edge_first × cycle_decay^c` |
+| Zone | Edges in day | Behaviour |
 | --- | --- | --- |
-| 1 (intensify) | `d < threshold − 1` | `1.0 + (d / (threshold − 1)) × (max − 1)` — ramps from ×1.0 to ×max |
-| 2 (decay) | `d ≥ threshold − 1` | `max × day_decay^(d − (threshold − 1))` — fades each excess edge |
-
-`brutal_bonus_per_edge` and `brutal_bonus_post_plateau_linear` from
-earlier iterations are no longer read by the compute lib — left in
-Settings for backward-compat but ignored. The headline "brutal
-multiplier" reported on the tile is now the multiplier applied to
-the most-recent edge today (i.e., current intensity, not whole-day).
+| 1 | 1–`brutal_bonus_threshold` (default 10) | Diminishing per edge: `edge_first × cycle_decay^c × day_decay^d` |
+| 2 | threshold→cap | Brutal multiplier escalates linearly: `1.0 + (edges−threshold) × per_edge`, capped at `max_multiplier` |
+| 3 | past plateau | Each additional edge adds flat `post_plateau_linear` |
 
 ### Calorie detraction (self-focus pulls score DOWN)
 
@@ -111,15 +105,16 @@ Sheet — no redeploy needed.
 | `weakness_edge_first` | 30 | Potency of edge #1 of cycle, #1 of day. The most potent edge. |
 | `weakness_edge_cycle_decay` | 0.90 | Each cycle edge worth `prior × 0.90`. Slow taper across days. |
 | `weakness_edge_day_decay` | 0.60 | Each *same-day* edge worth `prior × 0.60`. Faster taper within a day. |
-| `brutal_bonus_threshold` | 10 | Edges in the intensify zone — multiplier hits its max at this edge index. |
-| `brutal_bonus_max_multiplier` | 5.0 | Peak multiplier at edge `threshold`. Past the peak, decay kicks in. |
-| `brutal_bonus_per_edge` | 0.05 | *Deprecated — ignored by current compute. Left in Settings for backward-compat.* |
-| `brutal_bonus_post_plateau_linear` | 20 | *Deprecated — ignored by current compute.* |
+| `brutal_bonus_threshold` | 10 | Day-edge count above which the brutal multiplier starts. |
+| `brutal_bonus_per_edge` | 0.05 | Multiplier increment per edge above threshold. |
+| `brutal_bonus_max_multiplier` | 5.0 | Hard cap. With per_edge=0.05, plateau hit at 90 edges/day. |
+| `brutal_bonus_post_plateau_linear` | 20 | Flat add per edge past the multiplier plateau. |
 | `calorie_burn_threshold` | 487 | kcal (= 2040 kJ). Below this, no detraction. |
 | `calorie_burn_base_detraction` | 30 | Detraction at exactly the threshold. |
 | `calorie_burn_per_unit_above` | 0.2 | Detraction per kcal above threshold. |
 | `worship_weight_per_minute` | 5 | Score added per logged worship minute. |
 | `self_help_weight_per_minute` | 3 | Score subtracted per logged self-help minute. |
+| `slip_penalty_points` | 860 | Flat score deduction per logged **lapsed** orgasm, applied to the day's gain. 860 ≈ 40% of the start of the final phase (2151), so anyone in the lower 40% of the curve floors to 0 (effective reset); high-score slips lose a chunk but stay weak. |
 
 ### Tuning examples
 
@@ -163,9 +158,7 @@ compute walks the JSON in declaration order.
 
 1. `orgasm_allowed = no` in Settings.
 2. Tap **+1 edge ⚡** several times. Watch `Today edges` and `Today
-   gain` jump. As edges climb 1→10 the per-edge contribution rises
-   (intensify zone); past 10 each new edge contributes less than the
-   prior (decay zone).
+   gain` jump. Past edge 10, the brutal multiplier appears.
 3. Tap **🙇 Worship time**, log 15 minutes of "photo viewing".
    Score climbs by `15 × worship_weight_per_minute = 75`.
 4. Tap **🧘 Self-help time**, log 30 minutes of "reading".
@@ -173,12 +166,13 @@ compute walks the JSON in declaration order.
 5. Trigger an Apple Health POST with active calories ≥ 487. The
    calorie chip appears on the tile and the day's gain reflects the
    detraction.
-6. Tap **🙏 Thanks Goddess** — Harley gets a Telegram message; next
-   day's curve resets. Tap **😔 Slipped** for a lapse without
-   resetting the curve.
-7. Edge #5 onwards in a single day → Harley gets a Telegram message
-   per edge (orgasm logs and edges both fan out to Telegram now;
-   email stays out of the loop entirely).
+6. Tap **🙏 Thanks Goddess** — Harley gets a Telegram message; the
+   cycle anchors on this allowed release, so subsequent days start
+   from 0. Tap **😔 Slipped** for a lapse — Harley still gets the
+   Telegram, AND the day's gain takes a flat `slip_penalty_points`
+   hit (default 860). Mid-curve slips floor to 0 (effective reset);
+   high-score slips lose a chunk but stay weak.
+7. Edge #5 onwards in a single day → Harley gets an email per edge.
 
 ## Future phases
 

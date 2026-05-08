@@ -137,6 +137,18 @@ export const TAB_SCHEMAS = {
     "First seen at",
     "Notified at",
   ],
+  "Rule Checks": [
+    "ID",
+    "Active",
+    "Description",
+    "Threshold",
+    "Fine ($)",
+    "Meter Delta Pass",
+    "Meter Delta Fail",
+    "Notes",
+  ],
+  // Free-text manifesto in Harley's voice — single column, no schema beyond the header.
+  Rules: ["Line"],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -1156,6 +1168,68 @@ export const getDashboardAmex = unstable_cache(
   { revalidate: 60 }
 );
 
+export type DashboardTransactions = {
+  charges: AmexTransactionRow[];
+  todayChargeTotal: number;
+  sevenDayChargeTotal: number;
+  thirtyDayChargeTotal: number;
+  /** Most recent "balance" row from Amex weekly summaries. null if none. */
+  latestBalance: { date: string; amount: number; currency: string } | null;
+  hasAnyData: boolean;
+};
+
+/**
+ * Aggregator for the TRANSACTIONS tile + /transactions page. Includes balance
+ * rows so the tile can show the latest Amex balance alongside today/7d spend.
+ * Excludes "unparsed" rows — those are diagnostic, not user-facing.
+ */
+export const getDashboardTransactions = unstable_cache(
+  async (): Promise<DashboardTransactions> => {
+    const all = await getRecentAmexTransactions(30, { includeBalance: true });
+    const charges = all
+      .filter((r) => r.type === "charge")
+      // Sort by transaction date desc, then by syncedAt desc as tie-breaker
+      // so same-day charges show in arrival order.
+      .sort((a, b) => {
+        if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+        return a.syncedAt < b.syncedAt ? 1 : a.syncedAt > b.syncedAt ? -1 : 0;
+      });
+    const balances = all
+      .filter((r) => r.type === "balance")
+      .sort((a, b) => (a.syncedAt < b.syncedAt ? 1 : -1));
+
+    const today = todaySydneyISO();
+    const sevenDayCutoff = new Date(Date.parse(today + "T00:00:00Z") - 6 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+
+    const todayChargeTotal = charges
+      .filter((c) => c.date === today)
+      .reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0);
+    const sevenDayChargeTotal = charges
+      .filter((c) => c.date >= sevenDayCutoff)
+      .reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0);
+    const thirtyDayChargeTotal = charges.reduce(
+      (s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0),
+      0
+    );
+
+    const latest = balances[0];
+    return {
+      charges,
+      todayChargeTotal,
+      sevenDayChargeTotal,
+      thirtyDayChargeTotal,
+      latestBalance: latest
+        ? { date: latest.date, amount: latest.amount, currency: latest.currency || "AUD" }
+        : null,
+      hasAnyData: all.length > 0,
+    };
+  },
+  ["dashboard:transactions"],
+  { revalidate: 60 }
+);
+
 // ---------- Harley Ledger ----------
 //
 // One running balance Daniel owes Harley. Two inputs:
@@ -1340,6 +1414,170 @@ export const getHarleyBalance = unstable_cache(
   ["dashboard:harley-balance"],
   { revalidate: 60 }
 );
+
+// ---------- Rules manifesto (free-text) ----------
+
+export type ManifestoSection = {
+  heading: string | null;
+  lines: string[];
+};
+
+export const getRulesManifesto = unstable_cache(
+  async (): Promise<ManifestoSection[]> => {
+    const rows = await readTab("Rules");
+    if (!rows || rows.length === 0) return [];
+    const sections: ManifestoSection[] = [];
+    let current: ManifestoSection = { heading: null, lines: [] };
+    const flush = () => {
+      if (current.heading || current.lines.length > 0) sections.push(current);
+      current = { heading: null, lines: [] };
+    };
+    for (const row of rows) {
+      const text = String(row?.[0] ?? "").trim();
+      if (!text) { flush(); continue; }
+      const isHeading = text.endsWith(":") && text.length <= 60;
+      if (isHeading && current.lines.length > 0) flush();
+      if (isHeading && !current.heading) {
+        current.heading = text.replace(/:$/, "");
+        continue;
+      }
+      current.lines.push(text);
+    }
+    flush();
+    return sections;
+  },
+  ["dashboard:rules-manifesto"],
+  { revalidate: 60 }
+);
+
+// ---------- Rule Checks readers + helpers ----------
+
+export type RuleCheckRow = {
+  id: string;
+  active: boolean;
+  description: string;
+  threshold: string;
+  fine: number;
+  meterDeltaPass: number;
+  meterDeltaFail: number;
+  notes: string;
+};
+
+export const getRuleChecks = unstable_cache(
+  async (): Promise<RuleCheckRow[]> => {
+    const rows = await readTab("Rule Checks");
+    if (!rows || rows.length < 2) return [];
+    const out: RuleCheckRow[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      const id = String(r[0] ?? "").trim();
+      if (!id) continue;
+      out.push({
+        id,
+        active: String(r[1] ?? "").trim().toLowerCase() === "yes",
+        description: String(r[2] ?? "").trim(),
+        threshold: String(r[3] ?? "").trim(),
+        fine: Number(r[4] ?? 0) || 0,
+        meterDeltaPass: Number(r[5] ?? 0) || 0,
+        meterDeltaFail: Number(r[6] ?? 0) || 0,
+        notes: String(r[7] ?? "").trim(),
+      });
+    }
+    return out;
+  },
+  ["dashboard:rule-checks"],
+  { revalidate: 60 }
+);
+
+/**
+ * Append a Punishments row unless one with the exact same Reason
+ * already exists. Used by the rules cron so re-runs are idempotent —
+ * the Reason text encodes ruleId + ISO week.
+ */
+export async function appendPunishmentIfMissing(
+  date: string,
+  amount: number,
+  reason: string,
+  setBy: string
+): Promise<{ appended: boolean }> {
+  const client = sheetsClient();
+  const rows = await readTab("Punishments");
+  if (rows) {
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i]?.[2] ?? "").trim() === reason) {
+        return { appended: false };
+      }
+    }
+  }
+  await client.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Punishments!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[date, amount, reason, setBy, "no"]] },
+  });
+  return { appended: true };
+}
+
+/** Whoop workouts in a date range, lean projection for the rules evaluator. */
+export async function getWhoopWorkoutsBetween(
+  startDate: string,
+  endDate: string
+): Promise<{ date: string; sportId: number | null; strain: number | null }[]> {
+  if (!isConfigured()) return [];
+  try {
+    const client = sheetsClient();
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: sheetId(),
+      range: "Whoop Workouts!A1:K",
+      valueRenderOption: "UNFORMATTED_VALUE",
+      dateTimeRenderOption: "FORMATTED_STRING",
+    });
+    const rows = (res.data.values || []) as (string | number)[][];
+    if (rows.length < 2) return [];
+    const out: { date: string; sportId: number | null; strain: number | null }[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      const date = normalizeDate(r[0]);
+      if (!date) continue;
+      if (date < startDate || date > endDate) continue;
+      const sportId = r[2] === "" || r[2] === undefined || r[2] === null ? null : Number(r[2]);
+      const strain = r[3] === "" || r[3] === undefined || r[3] === null ? null : Number(r[3]);
+      out.push({ date, sportId, strain });
+    }
+    return out;
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("Unable to parse range") || msg.includes("not found")) return [];
+    console.error("[sheets] error reading Whoop Workouts:", msg);
+    return [];
+  }
+}
+
+/**
+ * Read Punishments rows whose Reason cell contains a substring (e.g.
+ * "(week 2026-W18)"). Used by the dashboard "Last week's fines" tile.
+ */
+export async function getPunishmentsMatching(
+  reasonSubstring: string
+): Promise<{ date: string; amount: number; reason: string; paid: boolean }[]> {
+  const rows = await readTab("Punishments");
+  if (!rows || rows.length < 2) return [];
+  const out: { date: string; amount: number; reason: string; paid: boolean }[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const reason = String(r[2] ?? "").trim();
+    if (!reason.includes(reasonSubstring)) continue;
+    out.push({
+      date: String(r[0] ?? "").trim(),
+      amount: Number(r[1] ?? 0) || 0,
+      reason,
+      paid: String(r[4] ?? "").trim().toLowerCase() === "yes",
+    });
+  }
+  return out;
+}
 
 /**
  * Idempotent monthly-fine appender. Skips if a Punishment row with
@@ -2421,6 +2659,13 @@ export type WeaknessSettings = {
   worship_weight_per_minute: number;
   /** Score detracted per minute of self-help time logged. */
   self_help_weight_per_minute: number;
+  /**
+   * Flat score deduction applied on the day of each lapsed orgasm. Default
+   * is 40% of the start of the final phase (2151) so anyone in the first
+   * 40% of the curve effectively resets to 0; high-score days lose a
+   * meaningful chunk but stay weak. Cumulative score still floors at 0.
+   */
+  slip_penalty_points: number;
   phase_thresholds: Record<string, [number, number, string]>;
 };
 
@@ -2455,6 +2700,7 @@ export const DEFAULT_WEAKNESS_SETTINGS: WeaknessSettings = {
   calorie_burn_per_unit_above: 0.2,
   worship_weight_per_minute: 5,
   self_help_weight_per_minute: 3,
+  slip_penalty_points: 860,
   phase_thresholds: DEFAULT_PHASE_THRESHOLDS,
 };
 
@@ -2476,6 +2722,7 @@ export const SETTINGS_SEED_ROWS: (string | number)[][] = [
   ["calorie_burn_per_unit_above", 0.2, "", "system"],
   ["worship_weight_per_minute", 5, "", "system"],
   ["self_help_weight_per_minute", 3, "", "system"],
+  ["slip_penalty_points", 860, "", "system"],
   ["phase_thresholds", JSON.stringify(DEFAULT_PHASE_THRESHOLDS), "", "system"],
 ];
 
@@ -2589,6 +2836,7 @@ export async function getWeaknessSettings(): Promise<WeaknessSettings> {
     calorie_burn_per_unit_above: num("calorie_burn_per_unit_above", DEFAULT_WEAKNESS_SETTINGS.calorie_burn_per_unit_above),
     worship_weight_per_minute: num("worship_weight_per_minute", DEFAULT_WEAKNESS_SETTINGS.worship_weight_per_minute),
     self_help_weight_per_minute: num("self_help_weight_per_minute", DEFAULT_WEAKNESS_SETTINGS.self_help_weight_per_minute),
+    slip_penalty_points: num("slip_penalty_points", DEFAULT_WEAKNESS_SETTINGS.slip_penalty_points),
     phase_thresholds: phaseThresholds,
   };
 }
