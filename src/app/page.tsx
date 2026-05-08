@@ -339,7 +339,7 @@ export default async function Dashboard({
           </Tile>
 
           {/* Row 2 */}
-          <Tile title="GYM (LADDER)">
+          <Tile title="WORKOUTS THIS WEEK">
             <GymTileBody
               workouts={whoopWorkouts}
               whoopConnected={whoopConnected}
@@ -612,62 +612,29 @@ function GymTileBody({
   if (!configured) {
     return (
       <>
-        <StatRow label="Today" value="Run" badge="✅" />
-        <StatRow label="This week" value="4 workouts" />
-        <StatRow label="Streak" value="6 days" />
-        <p className="text-xs text-zinc-500 mt-2">Latest: Run · 32m · strain 14.2</p>
+        <p className="text-5xl font-bold text-white mb-2">4 / 7</p>
+        <p className="text-xs text-zinc-500">Latest: Run · 32m · strain 14.2</p>
       </>
     );
   }
   if (!whoopConnected) {
     return <ConnectWhoopCta />;
   }
-  const hasAnyData =
-    !!workouts &&
-    (workouts.todayWorkouts.length > 0 ||
-      workouts.weekWorkoutCount > 0 ||
-      workouts.lastSynced ||
-      workouts.workoutStreak > 0);
-  if (!hasAnyData) {
-    return (
-      <div>
-        <p className="text-sm text-zinc-400">No Whoop workouts synced yet</p>
-        <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-1">
-          Daily cron at 8am AEST
-        </p>
-      </div>
-    );
-  }
-  const todayWorkouts = workouts!.todayWorkouts;
-  const todayBadge = todayWorkouts.length > 0 ? "✅" : "❌";
-  const todayValue =
-    todayWorkouts.length > 0
-      ? todayWorkouts.length === 1
-        ? todayWorkouts[0].sportName
-        : `${todayWorkouts.length} workouts`
-      : "No workout logged";
-  const todayBadgeColor =
-    todayWorkouts.length > 0 ? "text-green-400" : "text-red-400";
-  const latest = workouts!.latestWorkout;
+  const count = workouts?.weekWorkoutCount ?? 0;
+  const latest = workouts?.latestWorkout;
+  const countColor =
+    count >= 5 ? "text-green-400" : count >= 3 ? "text-amber-400" : "text-zinc-200";
   return (
     <>
-      <StatRow
-        label="Today"
-        value={todayValue}
-        badge={todayBadge}
-        badgeColor={todayBadgeColor}
-      />
-      <StatRow label="This week" value={`${workouts!.weekWorkoutCount} workouts`} />
-      <StatRow
-        label="Streak"
-        value={`${workouts!.workoutStreak} day${workouts!.workoutStreak === 1 ? "" : "s"}`}
-      />
-      {latest && (
-        <p className="text-xs text-zinc-500 mt-2">
+      <p className={`text-5xl font-bold mb-2 ${countColor}`}>{count} / 7</p>
+      {latest ? (
+        <p className="text-xs text-zinc-500">
           Latest: {latest.sportName} ·{" "}
           {formatWorkoutDuration(latest.durationMin)}
           {typeof latest.strain === "number" && ` · strain ${latest.strain.toFixed(1)}`}
         </p>
+      ) : (
+        <p className="text-xs text-zinc-500">no workouts logged this week</p>
       )}
     </>
   );
