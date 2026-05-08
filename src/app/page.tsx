@@ -664,7 +664,7 @@ function PhoneTile({
     return (
       <>
         {summary.todayApps.map((a) => {
-          const badge = phoneBadge(a.minutes);
+          const badge = phoneBadge(a.label, a.minutes);
           const capped = a.minutes >= SCREENTIME_CAP_MINUTES;
           return (
             <StatRow
