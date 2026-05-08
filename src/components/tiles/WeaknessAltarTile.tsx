@@ -110,25 +110,42 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
           </p>
           <p className="text-[11px] text-zinc-400 italic mt-0.5">{ALTAR_TAGLINE}</p>
         </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <button
-            type="button"
-            onClick={onTogglePill}
-            disabled={isPending}
-            title="Click to toggle Allowed / Denied"
-            className={`text-[10px] uppercase tracking-widest flex items-center gap-1.5 px-2 py-0.5 border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-              data.orgasmAllowed === "yes"
-                ? "text-emerald-300 border-emerald-700 hover:border-emerald-400 hover:bg-emerald-950/40"
-                : "text-rose-300 border-rose-700 hover:border-rose-400 hover:bg-rose-950/40"
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full inline-block ${
-                data.orgasmAllowed === "yes" ? "bg-emerald-400" : "bg-rose-400"
-              }`}
-            />
-            {data.orgasmAllowed === "yes" ? "Allowed" : "Denied"}
-          </button>
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          {data.orgasmAllowed === "yes" ? (
+            <button
+              type="button"
+              onClick={onTogglePill}
+              disabled={isPending}
+              title="Click to toggle Allowed / Denied"
+              className="text-[10px] uppercase tracking-widest flex items-center gap-1.5 px-2 py-0.5 border transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-emerald-300 border-emerald-700 hover:border-emerald-400 hover:bg-emerald-950/40"
+            >
+              <span className="w-2 h-2 rounded-full inline-block bg-emerald-400" />
+              Allowed
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onTogglePill}
+              disabled={isPending}
+              title="Click to toggle Allowed / Denied"
+              className="text-right border border-rose-900/60 hover:border-rose-700/80 bg-rose-950/30 hover:bg-rose-950/50 transition-colors px-2.5 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <p className="text-[9px] uppercase tracking-widest text-rose-300/80 mb-0.5">
+                Harley says
+              </p>
+              <ul className="space-y-0.5 text-[11px] text-rose-100 leading-tight">
+                <li className="flex items-center gap-1.5 justify-end">
+                  Stay pussy free <Tick />
+                </li>
+                <li className="flex items-center gap-1.5 justify-end">
+                  No cumming allowed <Tick />
+                </li>
+                <li className="flex items-center gap-1.5 justify-end">
+                  Allowed to stroke and edge <Tick />
+                </li>
+              </ul>
+            </button>
+          )}
           {data.orgasmAllowed === "no" && (
             <DenialClock totalEdgesEver={data.totalEdgesEver} />
           )}
@@ -328,6 +345,27 @@ export function WeaknessAltarTile({ data }: { data: WeaknessDashboardData }) {
 }
 
 // ---------- Sub-components ----------
+
+function Tick() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      className="shrink-0 text-emerald-400"
+      aria-hidden="true"
+    >
+      <path
+        d="M3 8.5l3 3 7-7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
