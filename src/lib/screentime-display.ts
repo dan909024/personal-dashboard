@@ -53,6 +53,7 @@ export const APP_DISPLAY_NAMES: Record<string, string> = {
   "net.whatsapp.WhatsApp": "WhatsApp",
   "com.apple.iBooks": "Books",
   "com.apple.Maps": "Maps",
+  "md.obsidian": "Obsidian",
 };
 
 export function displayAppName(label: string): string {

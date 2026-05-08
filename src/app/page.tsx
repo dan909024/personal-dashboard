@@ -140,6 +140,63 @@ function todayInSydney(): string {
   return fmt.format(new Date());
 }
 
+// Monday of the current week (Sydney wall-clock), as YYYY-MM-DD.
+// Mon=0..Sun=6, so subtract that offset from today's Sydney date.
+function mondayOfThisWeekSydney(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).formatToParts(new Date());
+  const year = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const month = parts.find((p) => p.type === "month")?.value ?? "01";
+  const day = parts.find((p) => p.type === "day")?.value ?? "01";
+  const wd = parts.find((p) => p.type === "weekday")?.value ?? "Mon";
+  const wdMap: Record<string, number> = {
+    Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6,
+  };
+  const offset = wdMap[wd] ?? 0;
+  const d = new Date(`${year}-${month}-${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - offset);
+  return d.toISOString().slice(0, 10);
+}
+
+// ---------- Writing summary ----------
+//
+// "Writing" = Obsidian foreground time (md.obsidian, same bundle id on
+// Mac and iOS). Window is Mon–Sun in Australia/Sydney so the tile
+// resets every Monday. Reuses the same row-cleaning pipeline as PHONE
+// so cross-device Share-Across-Devices doesn't double-count.
+
+const WRITING_BUNDLE_IDS = new Set<string>(["md.obsidian"]);
+
+type WritingSummary = {
+  todayMinutes: number;
+  daysWritten: number;
+  weekMinutes: number;
+};
+
+function summarizeWriting(rows: ScreenTimeRow[]): WritingSummary {
+  const todayDate = todayInSydney();
+  const weekStart = mondayOfThisWeekSydney();
+  const cleaned = dedupeAppsPreferMac(
+    dropCategoryRows(dropMacNonBundleIdLabels(rows))
+  ).filter(
+    (r) => WRITING_BUNDLE_IDS.has(r.label) && r.date >= weekStart
+  );
+  let todayMinutes = 0;
+  let weekMinutes = 0;
+  const days = new Set<string>();
+  for (const r of cleaned) {
+    weekMinutes += r.minutes;
+    if (r.minutes > 0) days.add(r.date);
+    if (r.date === todayDate) todayMinutes += r.minutes;
+  }
+  return { todayMinutes, daysWritten: days.size, weekMinutes };
+}
+
 // ---------- Page ----------
 
 type DashboardSearchParams = Promise<{ whoop?: string; whoop_error?: string }>;
@@ -199,6 +256,7 @@ export default async function Dashboard({
     : { past: [], future: [] };
 
   const phoneSummary = summarizeScreentime(screentime);
+  const writingSummary = summarizeWriting(screentime);
   const owedHarley = harleyBalance?.owed ?? 0;
   const week = isoWeekNumber();
   const review = daysUntilSunday();
@@ -352,7 +410,7 @@ export default async function Dashboard({
           </Tile>
 
           <Tile title="WRITING">
-            <NotTrackedYet />
+            <WritingTile configured={configured} summary={writingSummary} />
           </Tile>
 
           {/* Row 2 */}
@@ -598,21 +656,6 @@ function NoData() {
   return <p className="text-xs text-zinc-500 italic">no data yet</p>;
 }
 
-function NotTrackedYet({
-  subtitle = "Coming in a future phase",
-}: {
-  subtitle?: string;
-}) {
-  return (
-    <div>
-      <p className="text-sm text-zinc-500">Not tracked yet</p>
-      <p className="text-[10px] text-zinc-600 uppercase tracking-widest mt-1">
-        {subtitle}
-      </p>
-    </div>
-  );
-}
-
 function formatStepsRoutine(ah: DashboardAppleHealth | null): string {
   if (!ah || (!ah.todaySteps && !ah.weekStepsAvg)) return "—";
   const today = ah.todaySteps ? ah.todaySteps.toLocaleString("en-AU") : "0";
@@ -841,6 +884,36 @@ function TransactionsTile({
           </span>
         </p>
       ) : null}
+    </>
+  );
+}
+
+function WritingTile({
+  configured,
+  summary,
+}: {
+  configured: boolean;
+  summary: WritingSummary;
+}) {
+  if (!configured) {
+    return (
+      <>
+        <p className="text-5xl font-bold text-amber-400 mb-2">23m</p>
+        <p className="text-xs text-zinc-500">4 / 7 days · 2h 14m this week</p>
+      </>
+    );
+  }
+  const today = summary.todayMinutes;
+  const todayColor =
+    today >= 30 ? "text-green-400" : today >= 5 ? "text-amber-400" : "text-zinc-400";
+  return (
+    <>
+      <p className={`text-5xl font-bold mb-2 ${todayColor}`}>
+        {fmtPhoneMinutes(today)}
+      </p>
+      <p className="text-xs text-zinc-500">
+        {summary.daysWritten} / 7 days · {fmtPhoneMinutes(summary.weekMinutes)} this week
+      </p>
     </>
   );
 }
