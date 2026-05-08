@@ -408,6 +408,7 @@ export function build30DaySeries(args: {
 export type WeaknessDashboardData = {
   daysDenied: number;
   totalEdgesSinceLast: number;
+  totalEdgesEver: number;
   todayEdges: number;
   weaknessScore: number;
   todayDailyGain: number;
@@ -524,6 +525,7 @@ export async function getDashboardWeakness(): Promise<WeaknessDashboardData> {
   return {
     daysDenied,
     totalEdgesSinceLast,
+    totalEdgesEver: edges.length,
     todayEdges: daily.edges,
     weaknessScore: score,
     todayDailyGain: Math.round(daily.gain),
@@ -550,6 +552,7 @@ function emptyDashboard(_today: string): WeaknessDashboardData {
   return {
     daysDenied: 0,
     totalEdgesSinceLast: 0,
+    totalEdgesEver: 0,
     todayEdges: 0,
     weaknessScore: 0,
     todayDailyGain: 0,
