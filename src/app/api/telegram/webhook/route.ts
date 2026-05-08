@@ -38,8 +38,10 @@ type TelegramPhotoSize = {
   height: number;
   file_size?: number;
 };
+type TelegramFrom = { id: number; first_name?: string; username?: string };
 type TelegramMessage = {
   chat?: TelegramChat;
+  from?: TelegramFrom;
   text?: string;
   photo?: TelegramPhotoSize[];
 };
@@ -91,10 +93,11 @@ export async function POST(req: NextRequest) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN || "";
 
   // Photo upload — Harley sends a picture, becomes the new dashboard coach
-  // photo. No confirmation reply (per product decision). Silently dropped
-  // for non-Harley chats, photos over MAX_PHOTO_BYTES, or Blob errors.
+  // photo. Gated on the SENDER's user id, not the chat id, so it works
+  // wherever the bot can see her photo (her DM with the bot today, a
+  // shared group tomorrow). No confirmation reply by design.
   if (message?.photo && message.photo.length > 0) {
-    await handleCoachPhoto(chatId, message.photo, botToken);
+    await handleCoachPhoto(message.from?.id, message.photo, botToken);
     return NextResponse.json({ ok: true });
   }
 
@@ -115,17 +118,22 @@ export async function POST(req: NextRequest) {
 
 /**
  * Handle a Telegram photo message: download from Telegram and upload to
- * Vercel Blob under `coach/<timestamp>.<ext>`. Strict — only Harley's chat
- * id, only photos under MAX_PHOTO_BYTES, no replies. Errors are logged
- * and swallowed so Telegram doesn't retry the webhook.
+ * Vercel Blob under `coach/<timestamp>.<ext>`. Gate is the SENDER's user
+ * id (HARLEY_TELEGRAM_USER_ID, falling back to HARLEY_TELEGRAM_CHAT_ID
+ * since chat id == user id in a private DM with the bot). Photos over
+ * MAX_PHOTO_BYTES are dropped. No replies. Errors are logged + swallowed
+ * so Telegram doesn't retry the webhook.
  */
 async function handleCoachPhoto(
-  chatId: number,
+  fromUserId: number | undefined,
   photo: TelegramPhotoSize[],
   botToken: string
 ): Promise<void> {
-  const harley = parseEnvChatId("HARLEY_TELEGRAM_CHAT_ID");
-  if (!harley || chatId !== harley) return;
+  if (!fromUserId) return;
+  const harley =
+    parseEnvChatId("HARLEY_TELEGRAM_USER_ID") ??
+    parseEnvChatId("HARLEY_TELEGRAM_CHAT_ID");
+  if (!harley || fromUserId !== harley) return;
   if (!botToken) {
     console.warn("[telegram webhook] coach-photo: TELEGRAM_BOT_TOKEN missing");
     return;
