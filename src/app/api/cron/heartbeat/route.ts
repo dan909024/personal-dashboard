@@ -104,8 +104,12 @@ export async function GET(req: NextRequest) {
   }
 
   // Healthcheck ping (HEAD; ignore failures so it can't break the tick).
+  // Paused-until-launch: ping unconditionally so Healthchecks.io stays
+  // green and stops emailing Harley on every Whoop-staleness blip. Data
+  // alerts still flow via Telegram below. Re-gate on `heartbeatOk` once
+  // the site launches and Harley actually wants the tripwire.
   const healthcheckUrl = process.env.HEALTHCHECK_HEARTBEAT_URL || "";
-  if (heartbeatOk && healthcheckUrl) {
+  if (healthcheckUrl) {
     try {
       await fetch(healthcheckUrl, { method: "HEAD", cache: "no-store" });
     } catch (e) {
