@@ -73,8 +73,17 @@ export function fmtPhoneMinutes(m: number): string {
 export const SCREENTIME_CAP_MINUTES = 24 * 60;
 export const SCREENTIME_SUSPICIOUS_THRESHOLD = 18 * 60; // 18h
 
-export function phoneBadge(minutes: number): "❓" | "⚠" | "✅" {
+// Apps that never get an over-time-limit warning, regardless of minutes.
+// Match against the display name (post-displayAppName resolution), so add
+// the friendly label here, not the bundle id. Suspicious-cap badge still
+// applies — anything > 18h still flags as ❓ even if listed here.
+export const PHONE_NO_LIMIT_APPS = new Set<string>([
+  "Atlas",
+]);
+
+export function phoneBadge(label: string, minutes: number): "❓" | "⚠" | "✅" {
   if (minutes >= SCREENTIME_SUSPICIOUS_THRESHOLD) return "❓";
+  if (PHONE_NO_LIMIT_APPS.has(label)) return "✅";
   if (minutes >= 60) return "⚠";
   return "✅";
 }
