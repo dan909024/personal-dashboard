@@ -536,9 +536,9 @@ export default async function Dashboard({
           <TamperLog edits={sleepEdits} configured={configured} />
         </div>
 
-        {/* Peek at Goddess' feet — collapsible reveal of feet portion of coach photo */}
+        {/* Peek at Goddess' feet — curtain that splits open to reveal the page background photo */}
         <div className="px-4 pb-4">
-          <GoddessFeetPanel coachPhotoUrl={coachPhotoUrl ?? COACH_PHOTO_FALLBACK} />
+          <GoddessFeetPanel />
         </div>
 
         {/* Proof Drops embed */}
