@@ -50,18 +50,20 @@ function run() {
 }
 
 function main() {
-  // Hard reset System Settings — it loves to return to a stale pane on
-  // relaunch otherwise.
+  // Foreground launch + activate. We tested running the scrape with
+  // System Settings on a different macOS Space (Desktop 5) via
+  // `reopen` + `open -g` — the AX tree exists but the SwiftUI lazy
+  // virtualised list only materialises rows for the visually-rendered
+  // (active-Space) window. Off-Space scrapes failed with
+  // "Can't get object" or zero rows.
+  //
+  // So the active-Space window IS the scrape target. The idle gate
+  // in the TS driver (~/.screentime-scraper/state + ioreg HID idle)
+  // ensures the user isn't at the keyboard when this happens, and
+  // we quit System Settings at the end (see below) so no stray
+  // window remains on the user's Space.
   APP.doShellScript("osascript -e 'tell application \"System Settings\" to quit' || true");
   APP.doShellScript("sleep 2");
-  // Foreground launch + activate. We *tried* `open -gja` + `reopen` to
-  // run the scrape silently in the background, but SwiftUI's lazy
-  // virtualised lists only materialise rows for visible windows —
-  // background mode produced rows=0 every time. The idle gate in the
-  // TS driver (~/.screentime-scraper/state + ioreg HID idle) ensures
-  // this only runs when the user is away from the keyboard, so the
-  // brief focus-steal isn't actually seen. We also quit System
-  // Settings on completion (see below) to leave no visible residue.
   APP.doShellScript("osascript -e 'tell application \"System Settings\" to activate'");
   APP.doShellScript("sleep 1");
   APP.doShellScript("open 'x-apple.systempreferences:com.apple.Screen-Time-Settings.extension'");
