@@ -34,8 +34,6 @@ import {
   dropCategoryRows,
   dropMacNonBundleIdLabels,
   fmtPhoneMinutes,
-  phoneBadge,
-  SCREENTIME_CAP_MINUTES,
 } from "@/lib/screentime-display";
 import Link from "next/link";
 
@@ -81,14 +79,40 @@ function fmtTime(d: Date): string {
 }
 
 // ---------- Screen time summary ----------
+//
+// Three fixed buckets with daily targets. Today's minutes per bucket
+// drive the SCREENTIME tile's tick/X. Match is on the resolved display
+// name, so bundle ids (Mac knowledgeC.db) and friendly names (iOS
+// Shortcut) both hit the same bucket via APP_DISPLAY_NAMES.
+
+type ScreentimeBucket = {
+  label: string;
+  apps: Set<string>;
+  targetMinutes: number;
+};
+
+const SCREENTIME_BUCKETS: ScreentimeBucket[] = [
+  { label: "YouTube", apps: new Set(["YouTube"]), targetMinutes: 45 },
+  { label: "Instagram", apps: new Set(["Instagram"]), targetMinutes: 10 },
+  {
+    label: "Dating",
+    apps: new Set(["Raya", "Tinder", "Hinge", "Bumble"]),
+    targetMinutes: 0,
+  },
+];
+
+type ScreentimeBucketResult = {
+  label: string;
+  minutes: number;
+  targetMinutes: number;
+  obeyed: boolean;
+};
 
 type PhoneTileSummary = {
   todayDate: string;
-  todayApps: { label: string; minutes: number; sources: string[] }[];
   todayTotal: number;
   sevenDayTotal: number;
-  // If today has no data but the last 7 days do, fall back to 7-day top apps.
-  fallbackApps: { label: string; minutes: number; sources: string[] }[];
+  buckets: ScreentimeBucketResult[];
 };
 
 function summarizeScreentime(rows: ScreenTimeRow[]): PhoneTileSummary {
@@ -101,35 +125,20 @@ function summarizeScreentime(rows: ScreenTimeRow[]): PhoneTileSummary {
     dropCategoryRows(dropMacNonBundleIdLabels(rows))
   );
   const today = cleaned.filter((r) => r.date === todayDate);
-  const todayApps = aggregateTopApps(today, 3);
-  const fallbackApps = aggregateTopApps(cleaned, 3);
   const todayTotal = today.reduce((s, r) => s + r.minutes, 0);
   const sevenDayTotal = cleaned.reduce((s, r) => s + r.minutes, 0);
-  return { todayDate, todayApps, todayTotal, sevenDayTotal, fallbackApps };
-}
-
-function aggregateTopApps(
-  rows: ScreenTimeRow[],
-  n: number,
-): { label: string; minutes: number; sources: string[] }[] {
-  // Group by display name so different bundle ids that map to the same
-  // app (e.g. com.cardify.tinder and co.match.tinder → Tinder) collapse.
-  const map = new Map<string, { minutes: number; sources: Set<string> }>();
-  for (const r of rows) {
-    const display = displayAppName(r.label);
-    const e = map.get(display) || { minutes: 0, sources: new Set<string>() };
-    e.minutes += r.minutes;
-    e.sources.add(r.source);
-    map.set(display, e);
-  }
-  return Array.from(map.entries())
-    .map(([label, v]) => ({
-      label,
-      minutes: v.minutes,
-      sources: Array.from(v.sources),
-    }))
-    .sort((a, b) => b.minutes - a.minutes)
-    .slice(0, n);
+  const buckets: ScreentimeBucketResult[] = SCREENTIME_BUCKETS.map((b) => {
+    const minutes = today
+      .filter((r) => b.apps.has(displayAppName(r.label)))
+      .reduce((s, r) => s + r.minutes, 0);
+    return {
+      label: b.label,
+      minutes,
+      targetMinutes: b.targetMinutes,
+      obeyed: minutes <= b.targetMinutes,
+    };
+  });
+  return { todayDate, todayTotal, sevenDayTotal, buckets };
 }
 
 function todayInSydney(): string {
@@ -440,7 +449,7 @@ export default async function Dashboard({
             className="block border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4 hover:border-[#333] transition-colors"
           >
             <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3 flex items-center justify-between">
-              PHONE
+              SCREENTIME
               <span className="text-zinc-600 normal-case tracking-normal">details →</span>
             </p>
             <PhoneTile configured={configured} summary={phoneSummary} />
@@ -968,62 +977,28 @@ function PhoneTile({
   if (!configured) {
     return (
       <>
-        <StatRow label="IG" value="8 min" badge="✅" />
-        <StatRow label="YT" value="62 min" badge="⚠" badgeColor="text-amber-400" />
-        <StatRow label="Dating" value="clean" badge="✅" />
+        <StatRow label="YouTube" value="32m / 45m" badge="✓" badgeColor="text-green-400" />
+        <StatRow label="Instagram" value="8m / 10m" badge="✓" badgeColor="text-green-400" />
+        <StatRow label="Dating" value="0m / 0m" badge="✓" badgeColor="text-green-400" />
       </>
     );
   }
-  if (summary.todayApps.length === 0 && summary.fallbackApps.length === 0) {
-    return <NoData />;
-  }
-  if (summary.todayApps.length > 0) {
-    return (
-      <>
-        {summary.todayApps.map((a) => {
-          const badge = phoneBadge(a.label, a.minutes);
-          const capped = a.minutes >= SCREENTIME_CAP_MINUTES;
-          return (
-            <StatRow
-              key={a.label}
-              label={a.label}
-              value={
-                capped
-                  ? `${fmtPhoneMinutes(a.minutes)} (capped)`
-                  : fmtPhoneMinutes(a.minutes)
-              }
-              badge={badge}
-              badgeColor={
-                badge === "✅"
-                  ? "text-green-400"
-                  : badge === "❓"
-                  ? "text-rose-400"
-                  : "text-amber-400"
-              }
-            />
-          );
-        })}
-        <p className="text-xs text-zinc-500 mt-2">
-          today {fmtPhoneMinutes(summary.todayTotal)}
-          {summary.sevenDayTotal > 0
-            ? ` · 7d ${fmtPhoneMinutes(summary.sevenDayTotal)}`
-            : ""}
-        </p>
-      </>
-    );
-  }
-  // No data yet for today — show 7-day top apps as a fallback.
   return (
     <>
-      {summary.fallbackApps.map((a) => (
+      {summary.buckets.map((b) => (
         <StatRow
-          key={a.label}
-          label={a.label}
-          value={fmtPhoneMinutes(a.minutes)}
+          key={b.label}
+          label={b.label}
+          value={`${fmtPhoneMinutes(b.minutes)} / ${fmtPhoneMinutes(b.targetMinutes)}`}
+          badge={b.obeyed ? "✓" : "✗"}
+          badgeColor={b.obeyed ? "text-green-400" : "text-red-400"}
         />
       ))}
-      <p className="text-xs text-amber-400/80 mt-2">
-        no data today yet · 7d {fmtPhoneMinutes(summary.sevenDayTotal)}
+      <p className="text-xs text-zinc-500 mt-2">
+        today {fmtPhoneMinutes(summary.todayTotal)}
+        {summary.sevenDayTotal > 0
+          ? ` · 7d ${fmtPhoneMinutes(summary.sevenDayTotal)}`
+          : ""}
       </p>
     </>
   );

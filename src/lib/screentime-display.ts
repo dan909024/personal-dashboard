@@ -54,6 +54,8 @@ export const APP_DISPLAY_NAMES: Record<string, string> = {
   "com.apple.iBooks": "Books",
   "com.apple.Maps": "Maps",
   "md.obsidian": "Obsidian",
+  // Raya bundle id is a guess — confirm against /screentime page once a row appears.
+  "com.raya.app": "Raya",
 };
 
 export function displayAppName(label: string): string {
