@@ -50,20 +50,38 @@ function run() {
 }
 
 function main() {
-  // Foreground launch + activate. We tested running the scrape with
-  // System Settings on a different macOS Space (Desktop 5) via
-  // `reopen` + `open -g` — the AX tree exists but the SwiftUI lazy
-  // virtualised list only materialises rows for the visually-rendered
-  // (active-Space) window. Off-Space scrapes failed with
-  // "Can't get object" or zero rows.
+  // Foreground scrape — the constraints we proved empirically and
+  // the trade-offs they force:
   //
-  // So the active-Space window IS the scrape target. The idle gate
-  // in the TS driver (~/.screentime-scraper/state + ioreg HID idle)
-  // ensures the user isn't at the keyboard when this happens, and
-  // we quit System Settings at the end (see below) so no stray
-  // window remains on the user's Space.
+  //   1. SwiftUI's lazy virtualised list (the activity table) only
+  //      materialises rows when the System Settings window is on the
+  //      user's active macOS Space. Off-Space → "Can't get object"
+  //      from AX.
+  //   2. The table renders fine when the window is off-screen
+  //      (verified: 24 rows captured at -2400,-2400) — but the
+  //      polling LOOP's repeated AX walks run 4-5x slower off-screen
+  //      and blow past the 10-min osascript timeout. So off-screen
+  //      polling is a no-go.
+  //   3. Popup menus render at the popup button's pixel position; if
+  //      the window is off-screen the menu items render off-screen
+  //      too and the device-switch fails.
+  //   4. Cross-Space window manipulation requires yabai's scripting
+  //      addition, which needs partial SIP disable — blocked by
+  //      Vanta on this work machine.
+  //
+  // Net: window stays on the active Space, fully visible, throughout
+  // the 3-5 min scrape. The idle gate in the TS driver
+  // (~/.screentime-scraper/state + ioreg HID idle) ensures the user
+  // isn't at the keyboard when this happens. We quit Settings at
+  // the end so no stray window remains. The dashboard refresh
+  // button bypasses the idle gate when the user explicitly wants a
+  // fresh row now (and has chosen to step away).
   APP.doShellScript("osascript -e 'tell application \"System Settings\" to quit' || true");
-  APP.doShellScript("sleep 2");
+  // Longer post-quit settle: a previous failed run may have left the
+  // app in a half-quitting state. The "Can't get object" intermittent
+  // failure correlated with quick back-to-back invocations; 4 s lets
+  // the prior process actually exit.
+  APP.doShellScript("sleep 4");
   APP.doShellScript("osascript -e 'tell application \"System Settings\" to activate'");
   APP.doShellScript("sleep 1");
   APP.doShellScript("open 'x-apple.systempreferences:com.apple.Screen-Time-Settings.extension'");
@@ -91,35 +109,55 @@ function main() {
   pressFirstActivityCard(proc);
   APP.doShellScript(`sleep ${SWITCH_DELAY + 1}`);
 
+  // Snapshot the initial state — device popup defaults to "All
+  // Devices" on this macOS version. Capturing the total here lets
+  // us detect when the table actually re-renders post device-switch
+  // (the value changes from the All-Devices total to the iPhone-only
+  // total). Without this verification we hit a SwiftUI race: the
+  // popup's text label updates instantly but the table data lags
+  // 5-10 seconds, and our scrape captured stale combined data
+  // labelled as "iPhone".
+  let initialDevice = "?";
+  let initialTotal = "";
+  try { initialDevice = readPopupValue(proc, isDevicePopup) || "?"; } catch (e) {}
+  try { initialTotal = readUsageTotal(proc) || ""; } catch (e) {}
+  console.log(`[scrape] initial device=${initialDevice} total=${initialTotal}`);
+
   // Step 2: switch the Device popup to iPhone. (After "Share Across
   // Devices" is enabled, the menu offers per-device entries.)
   const deviceSwitched = switchPopup(proc, isDevicePopup, TARGET_DEVICE_REGEX);
   if (!deviceSwitched) {
     return { ok: false, error: "could not switch device popup to iPhone — is 'Share Across Devices' enabled and has the iPhone synced recently?", stage: "device_switch" };
   }
-  // Longer post-switch wait: SwiftUI lazy-loads rows for several
-  // seconds after the device change. The polling loop below catches
-  // any that materialise late, but a longer initial wait reduces
-  // total runtime.
-  APP.doShellScript(`sleep 4`);
 
-  // Step 3: scrape with polling.
+  // Wait for the table to actually re-render to iPhone-only data.
+  // We poll the usage total: when it differs from the captured
+  // initial (All Devices) total, SwiftUI has loaded the new data.
+  // Cap at 20 seconds — if the total never changes, the iPhone
+  // view may legitimately equal the All-Devices view (rare, e.g.
+  // user only used iPhone today), so we proceed regardless and
+  // note it.
+  let postSwitchTotal = "";
+  let waitedS = 0;
+  for (let i = 0; i < 40; i++) {
+    APP.doShellScript("sleep 0.5");
+    waitedS = (i + 1) * 0.5;
+    try { postSwitchTotal = readUsageTotal(proc) || ""; } catch (e) {}
+    if (postSwitchTotal && postSwitchTotal !== initialTotal) break;
+  }
+  let postSwitchDevice = "?";
+  try { postSwitchDevice = readPopupValue(proc, isDevicePopup) || "?"; } catch (e) {}
+  console.log(
+    `[scrape] post-switch device=${postSwitchDevice} total=${postSwitchTotal} (waited ${waitedS}s, total ${postSwitchTotal === initialTotal ? "UNCHANGED — possible race" : "changed"})`
+  );
+
+  // Step 2.5: collect rows ON-screen first.
   //
-  // The mostUsedTable is a SwiftUI virtualised list. We tried three
-  // ways to scroll past the viewport — AXScrollDownByPage on the
-  // outer scroll area was a no-op, system-level PageDown keystrokes
-  // didn't reach the table because focus drifted after the device
-  // popup click, and Quartz scroll-wheel events posted from a child
-  // process didn't deliver (likely a TCC permissions issue and a
-  // significant invocation cost). All three are dead ends without
-  // additional setup, so the scraper falls back to a simple polling
-  // loop that captures the rows the OS lazy-renders into the AX
-  // tree on its own. In practice this is ~12-17 rows — the top
-  // apps by minutes, which is what matters for the dashboard tile.
-  //
-  // The full list (typically 30-50 apps) only surfaces if the user
-  // has manually scrolled the pane within the same System Settings
-  // session. See SETUP-SCREENTIME.md for the limitation.
+  // The mostUsedTable is a SwiftUI virtualised list — rows
+  // materialise lazily as the table renders. On-screen the AX
+  // walks are fast (~1.5 s each), so we poll for SETTLE_S seconds
+  // and merge as rows come in. After this we have the bulk of
+  // the data in `seen` and can confidently move off-screen.
   const merged = { device: "", date: "", picker: "", total: "", windowTitle: "", rows: [] };
   const seen = new Map(); // name -> {name, time}
 
@@ -136,9 +174,14 @@ function main() {
     return added;
   }
 
+  // SHORT on-screen polling phase to capture as many rows as the
+  // OS lazy-renders. Off-screen AX walks are 4-5x slower (verified)
+  // and blow past the osascript timeout, so we do most of the
+  // collection here while the window is still visible.
+  const ONSCREEN_SETTLE_ITERS = 8;
   mergeFrom(scrape(proc.windows[0]));
   let quiet = 0;
-  for (let i = 0; i < SCROLL_MAX; i++) {
+  for (let i = 0; i < ONSCREEN_SETTLE_ITERS; i++) {
     APP.doShellScript(`sleep ${SCROLL_DELAY}`);
     const added = mergeFrom(scrape(proc.windows[0]));
     if (added === 0) {
@@ -148,10 +191,23 @@ function main() {
       quiet = 0;
     }
   }
+
+  // Step 4: shove the window off-screen, take ONE final walk to
+  // catch any rows that lazy-rendered after we stopped polling, then
+  // quit. We don't poll repeatedly off-screen because each off-screen
+  // AX walk is 4-5x slower than on-screen — empirically verified
+  // that 30 polling iterations hit the 10-min osascript timeout.
+  // One final walk only adds ~10 s and reaps a few late rows.
+  try {
+    proc.windows[0].position = [-2400, -2400];
+    APP.doShellScript("sleep 1.5");
+    mergeFrom(scrape(proc.windows[0]));
+  } catch (e) { /* tolerate — we still have what on-screen produced */ }
+
   merged.rows = Array.from(seen.values());
 
   // Clean up: quit System Settings so the user doesn't see a stray
-  // window when they come back from being idle. Best-effort.
+  // window (off-screen or otherwise) when they come back. Best-effort.
   try {
     APP.doShellScript("osascript -e 'tell application \"System Settings\" to quit' || true");
   } catch (e) { /* ignore */ }
@@ -188,6 +244,39 @@ function pressFirstActivityCard(proc) {
   }
   if (!firstBtn) throw new Error("first activity card not found");
   firstBtn.actions.byName("AXPress").perform();
+}
+
+// ---------- Reads (used by the verification logic in main) ----------
+
+// Walk the window tree and return the AXValue of the first
+// AXPopUpButton matching the predicate. Used to read the device
+// popup's current label without affecting it.
+function readPopupValue(proc, popupPred) {
+  let result = null;
+  walkOnce(proc.windows[0], e => {
+    if (result) return;
+    try {
+      if (axA(e, "AXRole") === "AXPopUpButton" && popupPred(e)) {
+        const v = axA(e, "AXValue");
+        if (v) result = v;
+      }
+    } catch (er) {}
+  });
+  return result;
+}
+
+// The big "X hours, Y minutes" text above the activity table.
+function readUsageTotal(proc) {
+  let result = null;
+  walkOnce(proc.windows[0], e => {
+    if (result) return;
+    if (axA(e, "AXIdentifier") === "usageHeaderView" &&
+        axA(e, "AXRole") === "AXStaticText") {
+      const v = axA(e, "AXValue");
+      if (v) result = v;
+    }
+  });
+  return result;
 }
 
 // ---------- Popup switching ----------

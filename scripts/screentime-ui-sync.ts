@@ -104,18 +104,30 @@ type ScrapeResult =
 
 function runScraper(): ScrapeResult {
   let stdout: string;
+  let stderr: string;
   try {
-    stdout = execFileSync("/usr/bin/osascript", ["-l", "JavaScript", SCRAPER], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      // The scraper polls the System Settings activity table for ~3-5
-      // minutes to materialise as many SwiftUI lazy rows as possible.
-      // Allow generous headroom; launchd's job lifecycle is fine with
-      // a long-running osascript.
-      timeout: 600_000,
-      // Default maxBuffer (1MB) is fine — the JSON payload is ~5KB.
-      maxBuffer: 4 * 1024 * 1024,
-    });
+    // execFileSync only returns stdout, but the JXA scraper uses
+    // console.log for diagnostic output (which goes to stderr in
+    // osascript). We need both: stdout for the JSON result, stderr
+    // for the [scrape] diagnostic lines.
+    const result = require("node:child_process").spawnSync(
+      "/usr/bin/osascript",
+      ["-l", "JavaScript", SCRAPER],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 600_000,
+        maxBuffer: 4 * 1024 * 1024,
+      }
+    );
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      throw new Error(
+        `osascript exited ${result.status} | stderr: ${(result.stderr || "").slice(0, 300)}`
+      );
+    }
+    stdout = result.stdout || "";
+    stderr = result.stderr || "";
   } catch (e) {
     const err = e as Error & { stdout?: Buffer; stderr?: Buffer };
     const stderrStr = err.stderr?.toString() || "";
@@ -123,6 +135,12 @@ function runScraper(): ScrapeResult {
     throw new Error(
       `osascript failed: ${err.message} | stderr: ${stderrStr.slice(0, 300)} | stdout: ${stdoutStr.slice(0, 300)}`
     );
+  }
+  // Surface the JXA diagnostic lines so they end up in the launchd
+  // log alongside the TS driver's own log lines.
+  for (const line of stderr.split("\n")) {
+    const t = line.trim();
+    if (t) console.log(`[scrape-diag] ${t}`);
   }
   const trimmed = stdout.trim();
   if (!trimmed) throw new Error("scraper produced empty output");
@@ -163,17 +181,38 @@ async function postPayload(payload: {
   tz: string;
   source: string;
   items: { label: string; category: string; minutes: number }[];
-}) {
-  const res = await fetch(INGEST_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${INGEST_SECRET}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  const body = await res.text();
-  return { ok: res.ok, status: res.status, body };
+}): Promise<{ ok: boolean; status: number; body: string }> {
+  // Retry on transient network errors. The scrape costs 3-5 minutes
+  // of work — a single `fetch failed` shouldn't waste it. We don't
+  // retry HTTP-level failures (4xx/5xx) because those typically
+  // indicate a payload or server-config issue that won't resolve
+  // by trying again.
+  const MAX_TRIES = 3;
+  let lastErr: Error | null = null;
+  for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
+    try {
+      const res = await fetch(INGEST_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${INGEST_SECRET}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.text();
+      return { ok: res.ok, status: res.status, body };
+    } catch (e) {
+      lastErr = e as Error;
+      if (attempt < MAX_TRIES) {
+        const backoffMs = 1500 * attempt;
+        console.warn(
+          `[screentime-ui-sync] POST attempt ${attempt} failed (${lastErr.message}); retrying in ${backoffMs}ms`
+        );
+        await new Promise((r) => setTimeout(r, backoffMs));
+      }
+    }
+  }
+  throw lastErr || new Error("POST failed after retries");
 }
 
 function readIdleSeconds(): number {
