@@ -140,6 +140,7 @@ export const TAB_SCHEMAS = {
     "Notified at",
   ],
   "Goddess Audit": ["Timestamp", "Action", "Detail"],
+  "Screen Time Control": ["Key", "Value"],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -2485,6 +2486,63 @@ export const getDashboardScreentime = unstable_cache(
   ["dashboard:screentime"],
   { revalidate: 60 }
 );
+
+// ---------- Screen Time Control (kv) ----------
+//
+// Single-tab key/value mailbox for cross-network triggers. The
+// dashboard's "Refresh iPhone screen time" button writes
+// `screentime_force_trigger_at` here; the Mac UI scraper polls the
+// value via GET /api/screentime/trigger and bypasses its idle/
+// cooldown gates if the timestamp is fresh.
+
+const SCREENTIME_FORCE_TRIGGER_KEY = "screentime_force_trigger_at";
+
+export async function getScreentimeForceTrigger(): Promise<string | null> {
+  await ensureTab("Screen Time Control");
+  const rows = await readTab("Screen Time Control");
+  if (!rows || rows.length < 2) return null;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    if (String(r[0] ?? "").trim() !== SCREENTIME_FORCE_TRIGGER_KEY) continue;
+    const v = String(r[1] ?? "").trim();
+    return v || null;
+  }
+  return null;
+}
+
+export async function setScreentimeForceTriggerNow(): Promise<string> {
+  await ensureTab("Screen Time Control");
+  const value = new Date().toISOString();
+  const client = sheetsClient();
+  const id = sheetId();
+  const get = await client.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: "Screen Time Control!A1:B",
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
+  const rows = (get.data.values || []) as (string | number)[][];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    if (String(r[0] ?? "").trim() === SCREENTIME_FORCE_TRIGGER_KEY) {
+      const sheetRow = i + 1;
+      await client.spreadsheets.values.update({
+        spreadsheetId: id,
+        range: `Screen Time Control!A${sheetRow}:B${sheetRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[SCREENTIME_FORCE_TRIGGER_KEY, value]] },
+      });
+      return value;
+    }
+  }
+  await client.spreadsheets.values.append({
+    spreadsheetId: id,
+    range: "Screen Time Control!A1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[SCREENTIME_FORCE_TRIGGER_KEY, value]] },
+  });
+  return value;
+}
 
 // ---------- Phase 5B: Goddess's Weakening Altar ----------
 //
