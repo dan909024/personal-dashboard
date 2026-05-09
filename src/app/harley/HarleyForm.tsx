@@ -513,28 +513,74 @@ export function HarleyForm({
             ))}
           </select>
 
-          {/* Recent fines list */}
+          {/* Forgiveness — show mercy to Dan for his failings as a man.
+              Auto fines (rule-eval cron + monthly fee) get their own
+              subsection so it's obvious which were earned by failure
+              versus delivered by your hand. */}
           {recentFines.length > 0 ? (
             <div className="border-t border-purple-900/40 pt-3">
-              <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
-                Unpaid · {recentFines.length}
+              <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase mb-1">
+                Forgiveness
               </p>
-              <ul className="space-y-1.5">
-                {recentFines.map((f) => (
-                  <FineRow
-                    key={f.rowIndex}
-                    fine={f}
-                    disabled={isPending}
-                    voidArmed={armed === `void:${f.rowIndex}`}
-                    onMarkPaid={onMarkPaid}
-                    onVoid={onVoidFine}
-                  />
-                ))}
-              </ul>
+              <p className="text-[11px] text-zinc-500 italic mb-3">
+                Show mercy to Dan for his failings as a man.
+              </p>
+              {(() => {
+                const auto = recentFines.filter((f) => f.setBy === "auto");
+                const manual = recentFines.filter((f) => f.setBy !== "auto");
+                return (
+                  <div className="space-y-3">
+                    {auto.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-semibold tracking-widest text-zinc-500 uppercase mb-1.5">
+                          Auto fines · {auto.length}
+                          <span className="font-normal italic text-zinc-600 normal-case tracking-normal ml-1">
+                            (his failings)
+                          </span>
+                        </p>
+                        <ul className="space-y-1.5">
+                          {auto.map((f) => (
+                            <FineRow
+                              key={f.rowIndex}
+                              fine={f}
+                              disabled={isPending}
+                              voidArmed={armed === `void:${f.rowIndex}`}
+                              onMarkPaid={onMarkPaid}
+                              onVoid={onVoidFine}
+                            />
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {manual.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-semibold tracking-widest text-zinc-500 uppercase mb-1.5">
+                          Manual fines · {manual.length}
+                          <span className="font-normal italic text-zinc-600 normal-case tracking-normal ml-1">
+                            (delivered by your hand)
+                          </span>
+                        </p>
+                        <ul className="space-y-1.5">
+                          {manual.map((f) => (
+                            <FineRow
+                              key={f.rowIndex}
+                              fine={f}
+                              disabled={isPending}
+                              voidArmed={armed === `void:${f.rowIndex}`}
+                              onMarkPaid={onMarkPaid}
+                              onVoid={onVoidFine}
+                            />
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <p className="text-[11px] text-zinc-600 italic border-t border-purple-900/40 pt-3">
-              No unpaid fines.
+              No unpaid fines. He has been good.
             </p>
           )}
 
