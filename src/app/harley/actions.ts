@@ -276,20 +276,6 @@ export async function clearAllUnpaidFinesAction(): Promise<
   }
 }
 
-export async function setDoubleNextMonthAction(
-  enabled: boolean
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!(await authorized())) return { ok: false, error: "unauthorized" };
-  try {
-    await setSetting("double_next_month", enabled ? "yes" : "no", "harley-admin");
-    await appendGoddessAudit("double-next-month", enabled ? "ON" : "OFF");
-    revalidateAll();
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
-}
-
 export async function setHardModeAction(
   enabled: boolean
 ): Promise<{ ok: true } | { ok: false; error: string }> {
