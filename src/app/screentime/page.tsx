@@ -16,6 +16,7 @@ import { getRecentScreentime, type ScreenTimeRow } from "@/lib/sheets";
 import {
   displayAppName,
   fmtPhoneMinutes,
+  screentimeLimitFor,
   SCREENTIME_CAP_MINUTES,
 } from "@/lib/screentime-display";
 import RefreshIphoneButton from "./RefreshIphoneButton";
@@ -229,6 +230,8 @@ function DayCard({ group }: { group: DayGroup }) {
           {group.rows.map((r, i) => {
             const capped = r.minutes >= SCREENTIME_CAP_MINUTES;
             const display = displayAppName(r.label);
+            const limit = screentimeLimitFor(r.label);
+            const violating = limit !== null && r.minutes > limit;
             const sourceShort =
               r.source === "ios_shortcut" ? "iOS"
               : r.source === "mac_launchd" ? "Mac"
@@ -237,11 +240,16 @@ function DayCard({ group }: { group: DayGroup }) {
             return (
               <tr
                 key={`${r.source}-${r.label}-${i}`}
-                className="border-b border-[#1a1a1a] last:border-b-0"
+                className={`border-b border-[#1a1a1a] last:border-b-0 ${
+                  violating ? "bg-red-950/30" : ""
+                }`}
               >
                 <td className="py-1.5 pr-2 text-zinc-400">{sourceShort}</td>
                 <td className="py-1.5 pr-2 text-zinc-500">{r.category || "—"}</td>
-                <td className="py-1.5 pr-2 text-zinc-200">
+                <td className={`py-1.5 pr-2 ${violating ? "text-red-300 font-semibold" : "text-zinc-200"}`}>
+                  {violating && (
+                    <span className="text-red-400 mr-1.5" aria-label="over limit">❗</span>
+                  )}
                   {display}
                   {display !== r.label && (
                     <span className="text-zinc-600 ml-1.5 font-mono text-[10px]">
@@ -249,13 +257,15 @@ function DayCard({ group }: { group: DayGroup }) {
                     </span>
                   )}
                 </td>
-                <td className="py-1.5 pr-2 text-right tabular-nums text-zinc-300">
+                <td className={`py-1.5 pr-2 text-right tabular-nums ${violating ? "text-red-300" : "text-zinc-300"}`}>
                   {r.minutes}
                 </td>
                 <td className="py-1.5 text-right tabular-nums">
                   <span
                     className={
-                      capped
+                      violating
+                        ? "text-red-300 font-semibold"
+                        : capped
                         ? "text-rose-400"
                         : r.minutes >= 60
                         ? "text-amber-300"
@@ -263,7 +273,12 @@ function DayCard({ group }: { group: DayGroup }) {
                     }
                   >
                     {fmtPhoneMinutes(r.minutes)}
-                    {capped && (
+                    {violating && (
+                      <span className="ml-1 text-[10px] text-red-400">
+                        / {fmtPhoneMinutes(limit!)}
+                      </span>
+                    )}
+                    {capped && !violating && (
                       <span className="ml-1 text-[10px]">⚠ capped</span>
                     )}
                   </span>

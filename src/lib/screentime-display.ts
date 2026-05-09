@@ -60,6 +60,33 @@ export function displayAppName(label: string): string {
   return APP_DISPLAY_NAMES[label] ?? label;
 }
 
+/**
+ * Per-app daily limits in minutes — the source of truth for both the
+ * dashboard SCREENTIME tile (today's totals + tick/X) and the
+ * /screentime breakdown (per-row red ❗ on violations). Apps not
+ * listed have no limit. Dating apps are 0 (zero tolerance).
+ *
+ * Match key is the resolved display name (post-displayAppName), so
+ * iOS Shortcut friendly names and Mac bundle ids both hit the same
+ * entry once the bundle id is mapped above.
+ */
+export const SCREENTIME_LIMITS: Record<string, number> = {
+  YouTube: 45,
+  Instagram: 10,
+  Facebook: 10,
+  Raya: 0,
+  Tinder: 0,
+  Hinge: 0,
+  Bumble: 0,
+};
+
+/** Returns the daily limit for an app, or null if unlimited. */
+export function screentimeLimitFor(label: string): number | null {
+  const display = APP_DISPLAY_NAMES[label] ?? label;
+  const v = SCREENTIME_LIMITS[display];
+  return v === undefined ? null : v;
+}
+
 export function fmtPhoneMinutes(m: number): string {
   if (!Number.isFinite(m) || m <= 0) return "0m";
   if (m < 60) return `${m}m`;

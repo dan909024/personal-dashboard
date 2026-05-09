@@ -35,6 +35,7 @@ import {
   dropCategoryRows,
   dropMacNonBundleIdLabels,
   fmtPhoneMinutes,
+  SCREENTIME_LIMITS,
 } from "@/lib/screentime-display";
 import Link from "next/link";
 
@@ -96,9 +97,14 @@ type ScreentimeBucket = {
   targetMinutes: number;
 };
 
+// Targets pulled from SCREENTIME_LIMITS so the dashboard tile and
+// /screentime breakdown stay in lockstep — change a number once,
+// both views update. Dating bucket aggregates the four apps; their
+// per-app limits are all 0 in SCREENTIME_LIMITS so the bucket sum
+// also has a 0 target.
 const SCREENTIME_BUCKETS: ScreentimeBucket[] = [
-  { label: "YouTube", apps: new Set(["YouTube"]), targetMinutes: 45 },
-  { label: "Instagram", apps: new Set(["Instagram"]), targetMinutes: 10 },
+  { label: "YouTube", apps: new Set(["YouTube"]), targetMinutes: SCREENTIME_LIMITS.YouTube },
+  { label: "Instagram", apps: new Set(["Instagram"]), targetMinutes: SCREENTIME_LIMITS.Instagram },
   {
     label: "Dating",
     apps: new Set(["Raya", "Tinder", "Hinge", "Bumble"]),
