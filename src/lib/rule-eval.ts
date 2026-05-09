@@ -41,10 +41,13 @@ import {
   WATER_TARGET_ML_PER_DAY,
   HARLEY_TASK_TARGET_PER_WEEK,
 } from "./harley-meter";
-import type { HarleyRuleId } from "./harley-rules";
+import { SLIP_FINE_AMOUNT, type HarleyRuleId } from "./harley-rules";
 
 export type FineAmounts = Record<HarleyRuleId, number>;
 
+// `slip` is user-triggered (WeaknessAltar Slipped button), not part of
+// the auto-eval cron's rule loop — but its amount lives here too so
+// FineAmounts stays exhaustive over HarleyRuleId.
 export const FINE_AMOUNTS: FineAmounts = {
   wake: 10,
   bed: 10,
@@ -52,6 +55,7 @@ export const FINE_AMOUNTS: FineAmounts = {
   steps: 20,
   water: 20,
   tasks: 25,
+  slip: SLIP_FINE_AMOUNT,
 };
 
 export type RuleEvalCandidate = {

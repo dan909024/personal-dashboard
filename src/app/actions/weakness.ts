@@ -6,11 +6,13 @@ import {
   appendDailyCheckIn,
   appendEdgeLog,
   appendOrgasmLog,
+  appendPunishment,
   appendSelfHelpLog,
   appendWorshipLog,
   setSetting,
   type OrgasmType,
 } from "@/lib/sheets";
+import { SLIP_FINE_AMOUNT } from "@/lib/harley-rules";
 import { sendHarleyTelegram } from "@/lib/telegram";
 import { getDashboardWeakness } from "@/lib/weakness";
 
@@ -38,6 +40,32 @@ export async function logOrgasmAction(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const { date, daysSincePrevious } = await appendOrgasmLog({ type, note });
+
+    // A "lapsed" log is a self-reported slip — auto-fine $20 to the
+    // Punishments tab. ruleId="slip" so the OWED HARLEY tooltip shows
+    // the rule provenance instead of "Manual fine".
+    let finedAmount = 0;
+    if (type === "lapsed") {
+      try {
+        await appendPunishment({
+          amount: SLIP_FINE_AMOUNT,
+          reason: "Cumming without permission",
+          setBy: "auto (slip button)",
+          ruleId: "slip",
+          date,
+        });
+        finedAmount = SLIP_FINE_AMOUNT;
+      } catch (fineErr) {
+        // Don't fail the whole action if the fine append fails — the
+        // orgasm log already wrote successfully and Harley still gets
+        // the Telegram. Surface the error in logs so we can chase it.
+        console.error(
+          "[logOrgasmAction] slip fine append failed:",
+          (fineErr as Error).message
+        );
+      }
+    }
+
     // Pull the freshest dashboard state so the message reflects post-write reality.
     const dash = await getDashboardWeakness();
     const lines = [
@@ -50,6 +78,7 @@ export async function logOrgasmAction(
       `"${dash.currentPhase.flavorText}"`,
       `Weakness score: ${dash.weaknessScore}`,
     ];
+    if (finedAmount > 0) lines.push(`Auto-fine: $${finedAmount} → Punishments`);
     if (note) lines.push(`Note: ${note}`);
     await sendHarleyTelegram(lines.join("\n"));
     revalidatePath("/");

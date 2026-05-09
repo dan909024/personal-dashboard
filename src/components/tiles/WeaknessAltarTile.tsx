@@ -74,7 +74,7 @@ export function WeaknessAltarTile({
     runAction("Logged", () => logOrgasmAction("allowed"));
   };
   const onLapsed = () => {
-    if (!confirm("Log this as a slip (lapsed orgasm)?")) return;
+    if (!confirm("Log this as a slip (lapsed orgasm)? Adds a $20 fine to Punishments.")) return;
     runAction("Logged", () => logOrgasmAction("lapsed"));
   };
   const onEdge = () => {
