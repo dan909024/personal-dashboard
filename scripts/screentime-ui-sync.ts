@@ -42,23 +42,36 @@ const SOURCE = "mac_ui_iphone";
 const SCRAPER = join(__dirname, "screentime-ui-scrape.js");
 
 // Gating: launchd fires this job every 2 minutes. The scrape itself
-// takes 3-5 minutes and steals no focus, but it does drive System
-// Settings, so we don't want it running constantly. Two gates:
+// takes 3-5 minutes and steals focus while running, so we don't want
+// it firing constantly. Three gates checked in order:
 //
-//   1. Idle gate — only run when the user has been idle for at least
+//   1. Force-trigger override — the dashboard's "Refresh iPhone
+//      screen time" button writes a timestamp to a Sheet cell via
+//      POST /api/screentime/trigger. We GET that timestamp at
+//      startup; if it's newer than our last success AND within
+//      FORCE_TRIGGER_FRESHNESS_S, we bypass idle + cooldown and
+//      run immediately.
+//
+//   2. Cooldown — after a successful scrape, sleep for COOLDOWN_S
+//      before another can fire. Default 4 h (14400 s). Override via
+//      SCREENTIME_UI_COOLDOWN_S env.
+//
+//   3. Idle gate — only run when the user has been idle for at least
 //      IDLE_THRESHOLD_S (HID-input-quiet seconds). Default 120 s.
 //      Override via SCREENTIME_UI_IDLE_S env.
 //
-//   2. Cooldown — after a successful scrape, sleep for
-//      COOLDOWN_S before another can fire. Default 4 hours (14400 s).
-//      Override via SCREENTIME_UI_COOLDOWN_S env.
-//
-// State is persisted to ~/.screentime-scraper/state.json so cooldown
-// survives launchd job restarts.
+// State (cooldown anchor + last consumed force-trigger timestamp)
+// is persisted to ~/.screentime-scraper/state.json so it survives
+// launchd job restarts.
 const IDLE_THRESHOLD_S = Number(process.env.SCREENTIME_UI_IDLE_S) || 120;
 const COOLDOWN_S = Number(process.env.SCREENTIME_UI_COOLDOWN_S) || 4 * 60 * 60;
+const FORCE_TRIGGER_FRESHNESS_S = 10 * 60; // 10 minutes
 const STATE_DIR = join(homedir(), ".screentime-scraper");
 const STATE_PATH = join(STATE_DIR, "state.json");
+// GET /api/screentime/trigger is on the same host as ingest. Derive
+// it from INGEST_URL (which ends in /api/screentime/ingest) so the
+// launchd plist only has to set one URL.
+const TRIGGER_URL = INGEST_URL.replace(/\/ingest$/, "/trigger");
 
 if (!INGEST_URL || !INGEST_SECRET) {
   console.error(
@@ -174,7 +187,7 @@ function readIdleSeconds(): number {
   }
 }
 
-type State = { lastSuccessAt?: string };
+type State = { lastSuccessAt?: string; lastConsumedForceTriggerAt?: string };
 function readState(): State {
   try {
     if (!existsSync(STATE_PATH)) return {};
@@ -188,6 +201,20 @@ function writeState(s: State) {
   writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
 }
 
+async function readForceTrigger(): Promise<string | null> {
+  if (!TRIGGER_URL) return null;
+  try {
+    const res = await fetch(TRIGGER_URL, {
+      headers: { Authorization: `Bearer ${INGEST_SECRET}` },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { force_trigger_at?: string | null };
+    return body.force_trigger_at ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function secondsSinceLastSuccess(state: State): number {
   if (!state.lastSuccessAt) return Infinity;
   const t = Date.parse(state.lastSuccessAt);
@@ -199,25 +226,49 @@ async function main() {
   const startedAt = new Date().toISOString();
   console.log(`[screentime-ui-sync] started ${startedAt}`);
 
-  // Cooldown gate — skip silently if we successfully scraped recently.
   const state = readState();
-  const sinceLast = secondsSinceLastSuccess(state);
-  if (sinceLast < COOLDOWN_S) {
-    console.log(
-      `[screentime-ui-sync] skipping — cooldown active (last success ${sinceLast}s ago, need ${COOLDOWN_S}s)`
-    );
-    return;
+
+  // Force-trigger override: if the dashboard's Refresh button has
+  // been pressed since our last consumed trigger AND the timestamp
+  // is fresh, bypass cooldown + idle.
+  let forceTriggered = false;
+  const forceTriggerAt = await readForceTrigger();
+  if (forceTriggerAt) {
+    const triggerAge = Math.floor((Date.now() - Date.parse(forceTriggerAt)) / 1000);
+    const alreadyConsumed = state.lastConsumedForceTriggerAt === forceTriggerAt;
+    if (
+      Number.isFinite(triggerAge) &&
+      triggerAge >= 0 &&
+      triggerAge <= FORCE_TRIGGER_FRESHNESS_S &&
+      !alreadyConsumed
+    ) {
+      forceTriggered = true;
+      console.log(
+        `[screentime-ui-sync] force-trigger ${forceTriggerAt} (age ${triggerAge}s) — bypassing gates`
+      );
+    }
   }
 
-  // Idle gate — only run when the user has been quiet for at least
-  // IDLE_THRESHOLD_S seconds. launchd retries every 2 minutes; we'll
-  // catch the first qualifying idle window.
-  const idle = readIdleSeconds();
-  if (idle < IDLE_THRESHOLD_S) {
-    console.log(
-      `[screentime-ui-sync] skipping — user active (idle ${idle}s, need ${IDLE_THRESHOLD_S}s)`
-    );
-    return;
+  if (!forceTriggered) {
+    // Cooldown gate — skip silently if we successfully scraped recently.
+    const sinceLast = secondsSinceLastSuccess(state);
+    if (sinceLast < COOLDOWN_S) {
+      console.log(
+        `[screentime-ui-sync] skipping — cooldown active (last success ${sinceLast}s ago, need ${COOLDOWN_S}s)`
+      );
+      return;
+    }
+
+    // Idle gate — only run when the user has been quiet for at least
+    // IDLE_THRESHOLD_S seconds. launchd retries every 2 minutes; we'll
+    // catch the first qualifying idle window.
+    const idle = readIdleSeconds();
+    if (idle < IDLE_THRESHOLD_S) {
+      console.log(
+        `[screentime-ui-sync] skipping — user active (idle ${idle}s, need ${IDLE_THRESHOLD_S}s)`
+      );
+      return;
+    }
   }
 
   const result = runScraper();
@@ -259,7 +310,12 @@ async function main() {
   );
 
   // Mark cooldown — next scrape can't fire until COOLDOWN_S elapses.
-  writeState({ lastSuccessAt: new Date().toISOString() });
+  // Also record the force-trigger timestamp we honoured (if any) so
+  // future invocations don't re-fire on the same Sheet value.
+  writeState({
+    lastSuccessAt: new Date().toISOString(),
+    lastConsumedForceTriggerAt: forceTriggerAt || state.lastConsumedForceTriggerAt,
+  });
 }
 
 main().catch((e) => {

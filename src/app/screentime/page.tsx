@@ -18,6 +18,7 @@ import {
   fmtPhoneMinutes,
   SCREENTIME_CAP_MINUTES,
 } from "@/lib/screentime-display";
+import RefreshIphoneButton from "./RefreshIphoneButton";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -77,6 +78,10 @@ export default async function ScreentimePage() {
         </div>
 
         <IphoneLauncher />
+
+        <div className="mb-4 flex justify-end">
+          <RefreshIphoneButton />
+        </div>
 
 
         {groups.length === 0 ? (
