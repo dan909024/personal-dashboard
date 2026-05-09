@@ -314,6 +314,35 @@ function isTruthy(v: string | undefined): boolean {
 }
 
 /**
+ * Retry a Sheets API call once or twice on 429 / "Quota exceeded" responses.
+ * Why: the dashboard fans out ~15-20 reads on render and weakness actions
+ * (+1 EDGE, log worship, etc.) add another ~7 each — back-to-back clicks
+ * burst past the 60-reads-per-minute-per-user quota. Without a retry the
+ * raw API error bubbles into a user-facing toast.
+ * How to apply: wraps individual reads (readTab, getRecentAppleHealth)
+ * and the batched aggregate (readTabsBatch). Backs off 250ms / 750ms /
+ * 2s with jitter.
+ */
+async function withSheetsRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const errAny = e as { code?: number; status?: number; message?: string };
+      const code = errAny.code ?? errAny.status;
+      const msg = String(errAny.message ?? "");
+      const isQuota = code === 429 || /quota|rate.?limit/i.test(msg);
+      if (!isQuota || i === attempts - 1) throw e;
+      const delay = 250 * Math.pow(3, i) + Math.floor(Math.random() * 200);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
+
+/**
  * Read all rows from a tab. Returns rows AS-IS (header row included as rows[0]).
  * Returns null if the tab does not exist (caller can fall back).
  */
@@ -323,12 +352,14 @@ async function readTab(
   if (!isConfigured()) return null;
   try {
     const client = sheetsClient();
-    const res = await client.spreadsheets.values.get({
-      spreadsheetId: sheetId(),
-      range: `${tab}!A1:Z`,
-      valueRenderOption: "UNFORMATTED_VALUE",
-      dateTimeRenderOption: "FORMATTED_STRING",
-    });
+    const res = await withSheetsRetry(() =>
+      client.spreadsheets.values.get({
+        spreadsheetId: sheetId(),
+        range: `${tab}!A1:Z`,
+        valueRenderOption: "UNFORMATTED_VALUE",
+        dateTimeRenderOption: "FORMATTED_STRING",
+      })
+    );
     return (res.data.values as string[][]) || [];
   } catch (e) {
     const msg = (e as Error).message || "";
@@ -338,6 +369,42 @@ async function readTab(
     }
     console.error(`[sheets] error reading tab ${tab}:`, msg);
     return null;
+  }
+}
+
+/**
+ * Read multiple ranges in a single API call. Sheets bills batchGet as ONE
+ * read against the per-minute quota regardless of how many ranges are
+ * passed, so this is the right primitive when an aggregator (e.g.
+ * getWeaknessRawData) needs several tabs at once.
+ *
+ * Returns a Map keyed by the range string. Missing/empty ranges return [].
+ * Returns an empty map if Sheets isn't configured or batchGet fails.
+ */
+async function readTabsBatch(
+  ranges: string[]
+): Promise<Map<string, string[][]>> {
+  const out = new Map<string, string[][]>();
+  if (!isConfigured() || ranges.length === 0) return out;
+  try {
+    const client = sheetsClient();
+    const res = await withSheetsRetry(() =>
+      client.spreadsheets.values.batchGet({
+        spreadsheetId: sheetId(),
+        ranges,
+        valueRenderOption: "UNFORMATTED_VALUE",
+        dateTimeRenderOption: "FORMATTED_STRING",
+      })
+    );
+    const valueRanges = res.data.valueRanges || [];
+    for (let i = 0; i < ranges.length; i++) {
+      const rows = (valueRanges[i]?.values as string[][]) || [];
+      out.set(ranges[i], rows);
+    }
+    return out;
+  } catch (e) {
+    console.error("[sheets] batchGet failed:", (e as Error).message);
+    return out;
   }
 }
 
@@ -1867,43 +1934,54 @@ function parseWorkoutsCell(raw: string | number | undefined): AppleHealthWorkout
   }
 }
 
+function parseAppleHealthRows(
+  rows: (string | number)[][] | null,
+  days: number
+): AppleHealthRow[] {
+  if (!rows || rows.length < 2) return [];
+  const cutoffMs = Date.now() - days * 86400 * 1000;
+  const out: AppleHealthRow[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const date = normalizeDate(r[0] as string | number | undefined);
+    if (!date) continue;
+    const ms = Date.parse(date + "T12:00:00Z");
+    if (isNaN(ms) || ms < cutoffMs) continue;
+    out.push({
+      date,
+      steps: Number(r[1] ?? 0) || 0,
+      workouts: parseWorkoutsCell(r[2] as string | undefined),
+      activeCalories: r[3] === "" || r[3] === undefined ? undefined : Number(r[3]) || 0,
+      restingCalories: r[4] === "" || r[4] === undefined ? undefined : Number(r[4]) || 0,
+      source: String(r[5] ?? ""),
+      syncedAt: String(r[6] ?? ""),
+      waterMl: r[7] === "" || r[7] === undefined ? undefined : Number(r[7]) || 0,
+      proteinG: r[8] === "" || r[8] === undefined ? undefined : Number(r[8]) || 0,
+      caloriesConsumed:
+        r[9] === "" || r[9] === undefined ? undefined : Number(r[9]) || 0,
+    });
+  }
+  out.sort((a, b) => (a.date < b.date ? -1 : 1));
+  return out;
+}
+
 export async function getRecentAppleHealth(days = 7): Promise<AppleHealthRow[]> {
   if (!isConfigured()) return [];
   try {
     const client = sheetsClient();
-    const res = await client.spreadsheets.values.get({
-      spreadsheetId: sheetId(),
-      range: "Apple Health!A1:J",
-      valueRenderOption: "UNFORMATTED_VALUE",
-      dateTimeRenderOption: "FORMATTED_STRING",
-    });
-    const rows = (res.data.values || []) as (string | number)[][];
-    if (rows.length < 2) return [];
-    const cutoffMs = Date.now() - days * 86400 * 1000;
-    const out: AppleHealthRow[] = [];
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r || r.length === 0) continue;
-      const date = normalizeDate(r[0] as string | number | undefined);
-      if (!date) continue;
-      const ms = Date.parse(date + "T12:00:00Z");
-      if (isNaN(ms) || ms < cutoffMs) continue;
-      out.push({
-        date,
-        steps: Number(r[1] ?? 0) || 0,
-        workouts: parseWorkoutsCell(r[2] as string | undefined),
-        activeCalories: r[3] === "" || r[3] === undefined ? undefined : Number(r[3]) || 0,
-        restingCalories: r[4] === "" || r[4] === undefined ? undefined : Number(r[4]) || 0,
-        source: String(r[5] ?? ""),
-        syncedAt: String(r[6] ?? ""),
-        waterMl: r[7] === "" || r[7] === undefined ? undefined : Number(r[7]) || 0,
-        proteinG: r[8] === "" || r[8] === undefined ? undefined : Number(r[8]) || 0,
-        caloriesConsumed:
-          r[9] === "" || r[9] === undefined ? undefined : Number(r[9]) || 0,
-      });
-    }
-    out.sort((a, b) => (a.date < b.date ? -1 : 1));
-    return out;
+    const res = await withSheetsRetry(() =>
+      client.spreadsheets.values.get({
+        spreadsheetId: sheetId(),
+        range: "Apple Health!A1:J",
+        valueRenderOption: "UNFORMATTED_VALUE",
+        dateTimeRenderOption: "FORMATTED_STRING",
+      })
+    );
+    return parseAppleHealthRows(
+      (res.data.values || []) as (string | number)[][],
+      days
+    );
   } catch (e) {
     const msg = (e as Error).message || "";
     if (msg.includes("Unable to parse range") || msg.includes("not found")) return [];
@@ -2564,8 +2642,7 @@ export type OrgasmLogRow = {
   daysSincePrevious: number | null;
 };
 
-async function readOrgasmLog(): Promise<OrgasmLogRow[]> {
-  const rows = await readTab("Orgasm Log");
+function parseOrgasmRows(rows: string[][] | null): OrgasmLogRow[] {
   if (!rows || rows.length < 2) return [];
   const out: OrgasmLogRow[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -2586,6 +2663,10 @@ async function readOrgasmLog(): Promise<OrgasmLogRow[]> {
   }
   out.sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
   return out;
+}
+
+async function readOrgasmLog(): Promise<OrgasmLogRow[]> {
+  return parseOrgasmRows(await readTab("Orgasm Log"));
 }
 
 export async function getMostRecentOrgasm(): Promise<OrgasmLogRow | null> {
@@ -2645,8 +2726,7 @@ export type EdgeLogRow = {
   note: string;
 };
 
-async function readEdgeLog(): Promise<EdgeLogRow[]> {
-  const rows = await readTab("Edge Log");
+function parseEdgeRows(rows: string[][] | null): EdgeLogRow[] {
   if (!rows || rows.length < 2) return [];
   const out: EdgeLogRow[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -2661,6 +2741,10 @@ async function readEdgeLog(): Promise<EdgeLogRow[]> {
     });
   }
   return out;
+}
+
+async function readEdgeLog(): Promise<EdgeLogRow[]> {
+  return parseEdgeRows(await readTab("Edge Log"));
 }
 
 export async function appendEdgeLog(input: { note?: string } = {}): Promise<{
@@ -2712,8 +2796,7 @@ export type DailyCheckInRow = {
   note: string;
 };
 
-async function readDailyCheckIns(): Promise<DailyCheckInRow[]> {
-  const rows = await readTab("Daily Check-in");
+function parseDailyCheckInRows(rows: string[][] | null): DailyCheckInRow[] {
   if (!rows || rows.length < 2) return [];
   const out: DailyCheckInRow[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -2730,6 +2813,10 @@ async function readDailyCheckIns(): Promise<DailyCheckInRow[]> {
     });
   }
   return out;
+}
+
+async function readDailyCheckIns(): Promise<DailyCheckInRow[]> {
+  return parseDailyCheckInRows(await readTab("Daily Check-in"));
 }
 
 export async function appendDailyCheckIn(input: {
@@ -2808,8 +2895,7 @@ export type WorshipLogRow = {
   note: string;
 };
 
-async function readWorshipLog(): Promise<WorshipLogRow[]> {
-  const rows = await readTab("Worship Log");
+function parseWorshipRows(rows: string[][] | null): WorshipLogRow[] {
   if (!rows || rows.length < 2) return [];
   const out: WorshipLogRow[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -2828,6 +2914,10 @@ async function readWorshipLog(): Promise<WorshipLogRow[]> {
     });
   }
   return out;
+}
+
+async function readWorshipLog(): Promise<WorshipLogRow[]> {
+  return parseWorshipRows(await readTab("Worship Log"));
 }
 
 export async function appendWorshipLog(input: {
@@ -2864,8 +2954,7 @@ export type SelfHelpLogRow = {
   note: string;
 };
 
-async function readSelfHelpLog(): Promise<SelfHelpLogRow[]> {
-  const rows = await readTab("Self-Help Log");
+function parseSelfHelpRows(rows: string[][] | null): SelfHelpLogRow[] {
   if (!rows || rows.length < 2) return [];
   const out: SelfHelpLogRow[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -2884,6 +2973,10 @@ async function readSelfHelpLog(): Promise<SelfHelpLogRow[]> {
     });
   }
   return out;
+}
+
+async function readSelfHelpLog(): Promise<SelfHelpLogRow[]> {
+  return parseSelfHelpRows(await readTab("Self-Help Log"));
 }
 
 export async function appendSelfHelpLog(input: {
@@ -3017,8 +3110,7 @@ export const SETTINGS_SEED_ROWS: (string | number)[][] = [
   ["phase_thresholds", JSON.stringify(DEFAULT_PHASE_THRESHOLDS), "", "system"],
 ];
 
-async function readSettingsTab(): Promise<Map<string, string>> {
-  const rows = await readTab("Settings");
+function parseSettingsRows(rows: string[][] | null): Map<string, string> {
   const map = new Map<string, string>();
   if (!rows || rows.length < 2) return map;
   for (let i = 1; i < rows.length; i++) {
@@ -3029,6 +3121,10 @@ async function readSettingsTab(): Promise<Map<string, string>> {
     map.set(key, String(r[1] ?? ""));
   }
   return map;
+}
+
+async function readSettingsTab(): Promise<Map<string, string>> {
+  return parseSettingsRows(await readTab("Settings"));
 }
 
 /**
@@ -3086,11 +3182,11 @@ export async function setSetting(
 }
 
 /**
- * Single round-trip read of all weakness-related settings. Falls back to
- * DEFAULT_WEAKNESS_SETTINGS for any missing key.
+ * Build the typed WeaknessSettings object from an already-loaded settings
+ * map. Pure / non-IO so getWeaknessRawData can reuse the rows fetched in
+ * its single batchGet call.
  */
-export async function getWeaknessSettings(): Promise<WeaknessSettings> {
-  const map = await readSettingsTab();
+function weaknessSettingsFromMap(map: Map<string, string>): WeaknessSettings {
   const num = (key: keyof WeaknessSettings, fallback: number): number => {
     const raw = map.get(key);
     if (raw === undefined) return fallback;
@@ -3144,6 +3240,14 @@ export async function getWeaknessSettings(): Promise<WeaknessSettings> {
   };
 }
 
+/**
+ * Single round-trip read of all weakness-related settings. Falls back to
+ * DEFAULT_WEAKNESS_SETTINGS for any missing key.
+ */
+export async function getWeaknessSettings(): Promise<WeaknessSettings> {
+  return weaknessSettingsFromMap(await readSettingsTab());
+}
+
 /** Cached read of just orgasm_allowed for the layout background swap. */
 export const getOrgasmAllowed = unstable_cache(
   async (): Promise<"yes" | "no"> => {
@@ -3156,9 +3260,17 @@ export const getOrgasmAllowed = unstable_cache(
 );
 
 /**
- * Aggregator pulled by the dashboard tile in one Promise.all. Pulls everything
- * over the network; computeWeaknessScore (in src/lib/weakness.ts) does the math
- * locally so this stays a thin sheet-IO wrapper.
+ * Aggregator pulled by the dashboard tile and weakness server actions.
+ *
+ * Hot path: every +1 EDGE / log-worship / log-self-help click hits this.
+ * Combined with a dashboard re-render on revalidatePath('/'), naively
+ * reading these 7 tabs as 7 separate API calls blew the per-minute Sheets
+ * read quota after a handful of rapid clicks. We collapse the 5 small log
+ * tabs + Apple Health + Settings into a SINGLE spreadsheets.values.batchGet
+ * (Sheets bills batchGet as one read regardless of range count).
+ *
+ * computeWeaknessScore (in src/lib/weakness.ts) does the math locally so
+ * this stays a thin sheet-IO wrapper.
  */
 export async function getWeaknessRawData(): Promise<{
   orgasms: OrgasmLogRow[];
@@ -3171,18 +3283,38 @@ export async function getWeaknessRawData(): Promise<{
   hasArousalCheckInToday: boolean;
   mostRecentOrgasm: OrgasmLogRow | null;
 }> {
-  const [orgasms, edges, checkIns, worship, selfHelp, appleHealth, settings] =
-    await Promise.all([
-      readOrgasmLog(),
-      readEdgeLog(),
-      readDailyCheckIns(),
-      readWorshipLog(),
-      readSelfHelpLog(),
-      // 60 days covers a long denial cycle — calorie detraction needs to be
-      // available for any day in the cumulative-score iteration.
-      getRecentAppleHealth(60),
-      getWeaknessSettings(),
-    ]);
+  // 60 days covers a long denial cycle — calorie detraction needs to be
+  // available for any day in the cumulative-score iteration.
+  const APPLE_HEALTH_DAYS = 60;
+  const ranges = [
+    "Orgasm Log!A1:Z",
+    "Edge Log!A1:Z",
+    "Daily Check-in!A1:Z",
+    "Worship Log!A1:Z",
+    "Self-Help Log!A1:Z",
+    "Apple Health!A1:J",
+    "Settings!A1:Z",
+  ];
+  const batched = await readTabsBatch(ranges);
+  const [
+    orgasmRows,
+    edgeRows,
+    checkInRows,
+    worshipRows,
+    selfHelpRows,
+    appleHealthRows,
+    settingsRows,
+  ] = ranges.map((r) => batched.get(r) ?? []);
+  const orgasms = parseOrgasmRows(orgasmRows);
+  const edges = parseEdgeRows(edgeRows);
+  const checkIns = parseDailyCheckInRows(checkInRows);
+  const worship = parseWorshipRows(worshipRows);
+  const selfHelp = parseSelfHelpRows(selfHelpRows);
+  const appleHealth = parseAppleHealthRows(
+    appleHealthRows as (string | number)[][],
+    APPLE_HEALTH_DAYS
+  );
+  const settings = weaknessSettingsFromMap(parseSettingsRows(settingsRows));
   const today = todaySydneyISO();
   return {
     orgasms,
