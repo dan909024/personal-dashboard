@@ -197,9 +197,16 @@ function filterRowsInRange(rows: AppleHealthRow[], start: string, end: string): 
   return rows.filter((r) => r.date >= start && r.date <= end);
 }
 
+// "Enough data to fine" threshold for Apple Health rules. A week with fewer
+// than this many days of logged steps/water means ingestion likely lapsed —
+// fining for 26 steps over a week (real outcome of an unscored 2026-05-04
+// dry run) is wrong. Treat as "can't evaluate, skip" instead.
+const APPLE_HEALTH_MIN_DAYS = 5;
+
 async function buildStepsCandidate(weekStart: string, weekEnd: string): Promise<RuleEvalCandidate | null> {
   const rows = filterRowsInRange(await getRecentAppleHealth(14), weekStart, weekEnd);
-  if (rows.length === 0) return null; // can't evaluate without data
+  const daysWithSteps = rows.filter((r) => (r.steps || 0) > 0).length;
+  if (daysWithSteps < APPLE_HEALTH_MIN_DAYS) return null;
   const total = rows.reduce((s, r) => s + (r.steps || 0), 0);
   if (total >= STEPS_TARGET_PER_WEEK) return null;
   return {
@@ -214,7 +221,7 @@ async function buildStepsCandidate(weekStart: string, weekEnd: string): Promise<
 async function buildWaterCandidate(weekStart: string, weekEnd: string): Promise<RuleEvalCandidate | null> {
   const rows = filterRowsInRange(await getRecentAppleHealth(14), weekStart, weekEnd);
   const withWater = rows.filter((r) => typeof r.waterMl === "number" && r.waterMl > 0);
-  if (withWater.length === 0) return null;
+  if (withWater.length < APPLE_HEALTH_MIN_DAYS) return null;
   const totalMl = withWater.reduce((s, r) => s + (r.waterMl || 0), 0);
   const avgMl = totalMl / withWater.length;
   if (avgMl >= WATER_TARGET_ML_PER_DAY) return null;

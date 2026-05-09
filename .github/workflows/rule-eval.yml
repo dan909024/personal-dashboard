@@ -19,6 +19,10 @@ on:
         description: 'Skip writes; return planned fines only'
         type: boolean
         default: false
+      today:
+        description: "Override today (YYYY-MM-DD, Sydney). Useful to verify the Monday weekly path or backfill a missed day."
+        type: string
+        default: ''
 
 jobs:
   fire:
@@ -29,11 +33,18 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           DASHBOARD_BASE_URL: ${{ secrets.DASHBOARD_BASE_URL }}
           DRY_RUN: ${{ inputs.dry_run }}
+          TODAY: ${{ inputs.today }}
         run: |
           url="$DASHBOARD_BASE_URL/api/cron/rule-eval"
+          params=""
           if [ "$DRY_RUN" = "true" ]; then
-            url="$url?dry_run=1"
+            params="dry_run=1"
           fi
+          if [ -n "$TODAY" ]; then
+            [ -n "$params" ] && params="$params&"
+            params="${params}today=$TODAY"
+          fi
+          [ -n "$params" ] && url="$url?$params"
 
           response=$(curl -s -w "\n%{http_code}" \
             -H "Authorization: Bearer $CRON_SECRET" \
