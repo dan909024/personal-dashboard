@@ -1452,9 +1452,8 @@ export const getHarleyBalance = unstable_cache(
  * Reason="Monthly fee — <Month> <Year>" already exists for the
  * current Sydney month. Returns whether a row was appended.
  *
- * If the `double_next_month` Setting is "yes" when this fires, the
- * appended amount is 2× and the Setting resets to "no" so doubling
- * applies to one month only.
+ * If the `hard_mode` Setting is "yes" when this fires, the appended
+ * amount is 2× and the Reason is tagged "(hard-mode)".
  */
 export async function appendMonthlyFineIfMissing(
   amount = 1000
@@ -1493,21 +1492,10 @@ export async function appendMonthlyFineIfMissing(
   }
 
   const settings = await readSettingsTab();
-  const doubled =
-    String(settings.get("double_next_month") ?? "")
-      .trim()
-      .toLowerCase() === "yes";
   const hardMode =
     String(settings.get("hard_mode") ?? "").trim().toLowerCase() === "yes";
-  // Multipliers stack: hard_mode + double_next_month → 4× one-time.
-  const multiplier = (doubled ? 2 : 1) * (hardMode ? 2 : 1);
-  const finalAmount = amount * multiplier;
-  const reasonModifiers: string[] = [];
-  if (doubled) reasonModifiers.push("doubled");
-  if (hardMode) reasonModifiers.push("hard-mode");
-  const finalReason = reasonModifiers.length
-    ? `${reason} (${reasonModifiers.join(" + ")})`
-    : reason;
+  const finalAmount = hardMode ? amount * 2 : amount;
+  const finalReason = hardMode ? `${reason} (hard-mode)` : reason;
 
   const today = todaySydneyISO();
   await client.spreadsheets.values.append({
@@ -1520,17 +1508,13 @@ export async function appendMonthlyFineIfMissing(
     },
   });
 
-  // Toggle is single-shot — clear after the fine actually appended.
-  if (doubled) {
-    try {
-      await setSetting("double_next_month", "no", "monthly-fine");
-    } catch {
-      // Don't fail the cron if the reset write hiccups; log and move on.
-      console.error("[monthly-fine] failed to reset double_next_month");
-    }
-  }
-
-  return { appended: true, reason: finalReason, monthLabel, doubled, finalAmount };
+  return {
+    appended: true,
+    reason: finalReason,
+    monthLabel,
+    doubled: hardMode,
+    finalAmount,
+  };
 }
 
 /**

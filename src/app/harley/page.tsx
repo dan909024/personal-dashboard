@@ -52,7 +52,6 @@ export default async function HarleyAdminPage() {
     settings,
     balance,
     recentFines,
-    doubleNextMonthRaw,
     hardModeRaw,
     denialStartedAtRaw,
     meter,
@@ -63,7 +62,6 @@ export default async function HarleyAdminPage() {
     getWeaknessSettings(),
     getHarleyBalance(),
     getRecentUnpaidPunishments(10),
-    getSetting("double_next_month"),
     getSetting("hard_mode"),
     getSetting("denial_started_at"),
     configured ? getHarleyMeter() : Promise.resolve(0),
@@ -73,8 +71,6 @@ export default async function HarleyAdminPage() {
     getRecentGoddessAudit(5),
   ]);
 
-  const doubleNextMonth =
-    String(doubleNextMonthRaw ?? "").trim().toLowerCase() === "yes";
   const hardMode =
     String(hardModeRaw ?? "").trim().toLowerCase() === "yes";
   const denialStartedAt =
@@ -88,7 +84,6 @@ export default async function HarleyAdminPage() {
       allowed={settings.orgasm_allowed}
       owedHarley={balance.owed}
       recentFines={recentFines}
-      doubleNextMonth={doubleNextMonth}
       hardMode={hardMode}
       denialStartedAt={denialStartedAt}
       harleyMeter={meter}

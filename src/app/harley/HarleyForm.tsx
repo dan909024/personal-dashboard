@@ -15,7 +15,6 @@ import {
   markFinePaidAction,
   messageDanielAction,
   setDenialDateAction,
-  setDoubleNextMonthAction,
   setHardModeAction,
   setOrgasmAllowedAdminAction,
   voidFineAction,
@@ -44,7 +43,6 @@ export function HarleyForm({
   allowed,
   owedHarley,
   recentFines,
-  doubleNextMonth,
   hardMode,
   denialStartedAt,
   harleyMeter,
@@ -56,7 +54,6 @@ export function HarleyForm({
   allowed: "yes" | "no";
   owedHarley: number;
   recentFines: PunishmentWithRow[];
-  doubleNextMonth: boolean;
   hardMode: boolean;
   denialStartedAt: string | null;
   harleyMeter: number;
@@ -178,13 +175,6 @@ export function HarleyForm({
   const onClearAllUnpaid = () => {
     armOrFire("reset-balance", () =>
       run("Balance reset", () => clearAllUnpaidFinesAction())
-    );
-  };
-
-  const onToggleDoubleNextMonth = () => {
-    run(
-      doubleNextMonth ? "Doubling off" : "Doubling on",
-      () => setDoubleNextMonthAction(!doubleNextMonth)
     );
   };
 
@@ -584,22 +574,8 @@ export function HarleyForm({
             </p>
           )}
 
-          {/* Double next month + reset */}
+          {/* Reset balance */}
           <div className="border-t border-purple-900/40 mt-3 pt-3 space-y-2">
-            <button
-              type="button"
-              onClick={onToggleDoubleNextMonth}
-              disabled={isPending}
-              className={`w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-50 ${
-                doubleNextMonth
-                  ? "border-amber-500 bg-amber-950/40 text-amber-200 hover:border-amber-300"
-                  : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white"
-              }`}
-            >
-              {doubleNextMonth
-                ? "Double next monthly fee · ON"
-                : "Double next monthly fee"}
-            </button>
             <button
               type="button"
               onClick={onClearAllUnpaid}
@@ -744,7 +720,7 @@ export function HarleyForm({
           </p>
           <div className="flex flex-wrap gap-1 mb-3">
             {[
-              "Lock check now.",
+              "Edge for me now.",
               "Good boy.",
               "Disappointed.",
               "Knees, now.",
@@ -830,8 +806,7 @@ export function HarleyForm({
           </p>
           <p className="text-[11px] text-zinc-500 mb-3 italic">
             Doubles every fine while ON: manual fines you add here, the
-            monthly fee, and any auto rule-eval fines that fire. Stacks with
-            “Double next monthly fee” for a one-time 4×.
+            monthly fee, and any auto rule-eval fines that fire.
           </p>
           <button
             type="button"
