@@ -9,16 +9,16 @@
  *   wake — Whoop wake time > 06:30 Sydney
  *   bed  — Whoop sleep onset > 22:30 Sydney (00:00–05:59 = next day)
  *
- * Weekly rules (one fine per failed Mon-Sun, evaluated on Mondays):
+ * Weekly rules (one fine per failed Mon-Sun, evaluated on Sundays):
  *   gym   — < 4 Whoop workouts
  *   steps — < 70k Apple Health steps
  *   water — < 3.3 L Apple Health waterMl daily average
  *   tasks — < 4 Harley-authored past calendar events
  *
  * Daily rules look back 7 days so a missed cron run can catch up. Weekly
- * rules only fire on Monday — skipping a Monday means that week is
+ * rules only fire on Sunday — skipping a Sunday means that week is
  * forfeited (Harley can append manually). Triggered by
- * /api/cron/rule-eval/route.ts at 02:00 Sydney via GitHub Actions.
+ * /api/cron/rule-eval/route.ts at 22:00 Sydney via GitHub Actions.
  */
 import {
   appendPunishment,
@@ -83,13 +83,6 @@ function sydneyDayOfWeek(iso: string): number {
   });
   const short = fmt.format(new Date(iso + "T12:00:00Z"));
   return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(short);
-}
-
-/** Monday of the ISO week containing the given Sydney date. */
-function mondayOf(iso: string): string {
-  const dow = sydneyDayOfWeek(iso); // 0=Sun..6=Sat
-  const back = dow === 0 ? 6 : dow - 1;
-  return addDaysISO(iso, -back);
 }
 
 /* ---------- threshold parsing (mirrored from harley-meter.ts) ---------- */
@@ -269,18 +262,21 @@ export async function evaluateRulesAndFine(
   candidates.push(...(await buildWakeCandidates(today)));
   candidates.push(...(await buildBedCandidates(today)));
 
-  // Weekly rules — only fire on Monday for the previous Mon–Sun. The
-  // skipped-Monday case is intentional: catching up week-by-week opens
-  // boundary bugs we don't need (Harley can fine manually if needed).
-  const isMonday = sydneyDayOfWeek(today) === 1;
-  if (isMonday) {
-    const prevMon = addDaysISO(mondayOf(today), -7);
-    const prevSun = addDaysISO(prevMon, 6);
+  // Weekly rules — only fire on Sunday and score the just-ending Mon–Sun.
+  // Cron tick is 22:00 Sydney so Daniel sees the verdict before bed
+  // instead of waking up Monday to fines. Activity logged 22:00–23:59 Sun
+  // doesn't count toward this eval (rolls into next week). The skipped-
+  // Sunday case is intentional: catching up week-by-week opens boundary
+  // bugs we don't need (manual fines can fill any gap via /fine).
+  const isSunday = sydneyDayOfWeek(today) === 0;
+  if (isSunday) {
+    const weekStart = addDaysISO(today, -6); // Monday of this just-ending week
+    const weekEnd = today;                    // Sunday = today
     const weekly = await Promise.all([
-      buildGymCandidate(prevMon, prevSun),
-      buildStepsCandidate(prevMon, prevSun),
-      buildWaterCandidate(prevMon, prevSun),
-      buildTasksCandidate(prevMon, prevSun),
+      buildGymCandidate(weekStart, weekEnd),
+      buildStepsCandidate(weekStart, weekEnd),
+      buildWaterCandidate(weekStart, weekEnd),
+      buildTasksCandidate(weekStart, weekEnd),
     ]);
     for (const c of weekly) if (c) candidates.push(c);
   }

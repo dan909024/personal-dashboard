@@ -1,18 +1,21 @@
 # Daily rule-eval cron. Walks Harley Meter rules and appends
 # Punishments rows for any failed days/weeks that haven't been fined yet.
 #
-# Fires at 16:00 UTC = 02:00 AEST winter / 03:00 AEDT summer. The endpoint
+# Fires at 12:00 UTC = 22:00 AEST winter / 23:00 AEDT summer. The endpoint
 # is idempotent on (ruleId, periodStart) so DST drift doesn't matter — at
-# worst the eval lands a couple of hours later.
+# worst the eval lands an hour later. Cron lives on GitHub's runners, so
+# Daniel's laptop being asleep doesn't matter.
 #
 # Daily rules look back 7 days each run, so missing a day doesn't lose
-# fines. Weekly rules only fire on Mondays.
+# fines. Weekly rules only fire on Sundays — they score the just-ending
+# Mon-Sun and run before the next week starts so Daniel sees the verdict
+# Sunday night rather than waking up Monday to surprise fines.
 
 name: Rule eval (daily)
 
 on:
   schedule:
-    - cron: '0 16 * * *'
+    - cron: '0 12 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -20,7 +23,7 @@ on:
         type: boolean
         default: false
       today:
-        description: "Override today (YYYY-MM-DD, Sydney). Useful to verify the Monday weekly path or backfill a missed day."
+        description: "Override today (YYYY-MM-DD, Sydney). Useful to verify the Sunday weekly path or backfill a missed day."
         type: string
         default: ''
 

@@ -197,7 +197,7 @@ export default function RulesPage() {
             <li className="border border-[#222] bg-[#0f0f0f]/60 px-4 py-3 rounded">
               <p className="font-semibold text-white">Auto rule-eval cron</p>
               <p className="text-zinc-400 mt-1">
-                Daily at 02:00 Sydney via{" "}
+                Daily at 22:00 Sydney via{" "}
                 <code className="bg-black/40 px-1">/api/cron/rule-eval</code>.
                 Reads Harley Meter inputs, appends Punishments rows for failed
                 periods. Idempotent on (rule_id, period_start) — same period
@@ -214,7 +214,8 @@ export default function RulesPage() {
               </ul>
               <p className="text-zinc-500 mt-2 text-xs">
                 Daily rules look back 7 days each run (catch-up safe). Weekly
-                rules only evaluate on Mondays for the previous Mon–Sun.
+                rules only evaluate on Sunday night for the just-ending Mon–Sun;
+                activity logged 22:00–23:59 Sun rolls into the next week.
               </p>
             </li>
           </ul>
