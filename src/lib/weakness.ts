@@ -332,6 +332,14 @@ export type WeaknessSeriesPoint = {
   dailyGain: number;
   edges: number;
   phase: string;
+  /**
+   * Set to "peak" on the synthesized point that captures a slip day's
+   * pre-slip cumulative score. The chart emits TWO points for any day
+   * with a slip (peak first, then post-slip end-of-day) so the curve
+   * preserves the high-water mark instead of letting the slip penalty
+   * retroactively hide it.
+   */
+  slipMarker?: "peak";
 };
 
 /**
@@ -353,7 +361,16 @@ export function build30DaySeries(args: {
   const startDate = findCycleStart(orgasms, edges, checkIns, today);
   const series: WeaknessSeriesPoint[] = [];
   // Build a date → cumulative score map by walking from cycle start.
-  const scoreByDate = new Map<string, { score: number; daily: ReturnType<typeof computeDailyGain> }>();
+  // preSlipScore captures what the cumulative WOULD have been without the
+  // slip penalty applied — only differs from `score` on days with slips.
+  const scoreByDate = new Map<
+    string,
+    {
+      score: number;
+      preSlipScore: number;
+      daily: ReturnType<typeof computeDailyGain>;
+    }
+  >();
   if (startDate <= today) {
     const days = diffDays(startDate, today);
     let cycleEdgesBeforeDay = 0;
@@ -371,16 +388,40 @@ export function build30DaySeries(args: {
         orgasms,
         settings
       );
+      const prevScore = score;
       score += daily.gain;
       if (score < 0) score = 0;
       cycleEdgesBeforeDay += daily.edges;
-      scoreByDate.set(date, { score: Math.round(score), daily });
+      // Pre-slip score = previous cumulative + today's gain WITHOUT the
+      // slip penalty (daily.gain already has it subtracted, so add it
+      // back). Floored at 0 like the cumulative.
+      const preSlipRaw = prevScore + daily.gain + daily.slipPenalty;
+      const preSlipScore = Math.max(0, Math.round(preSlipRaw));
+      scoreByDate.set(date, {
+        score: Math.round(score),
+        preSlipScore,
+        daily,
+      });
     }
   }
   for (let i = 29; i >= 0; i--) {
     const date = addDays(today, -i);
     const entry = scoreByDate.get(date);
     if (entry) {
+      // Slip days: emit the pre-slip peak FIRST so the line spikes up
+      // before dropping. Without this, end-of-day cumulative makes a
+      // slip day look like the score never climbed.
+      if (entry.daily.slipCount > 0 && entry.preSlipScore > entry.score) {
+        const peakPhase = determinePhase(entry.preSlipScore, settings);
+        series.push({
+          date,
+          weakness: entry.preSlipScore,
+          dailyGain: Math.round(entry.daily.gain + entry.daily.slipPenalty),
+          edges: entry.daily.edges,
+          phase: peakPhase.name,
+          slipMarker: "peak",
+        });
+      }
       const phase = determinePhase(entry.score, settings);
       series.push({
         date,

@@ -57,9 +57,11 @@ export function WeaknessChart({ data }: { data: WeaknessSeriesPoint[] }) {
             formatter={(value, name, item) => {
               if (name === "weakness") {
                 const p = (item as { payload?: WeaknessSeriesPoint } | undefined)?.payload;
+                const label =
+                  p?.slipMarker === "peak" ? "Weakness (pre-slip peak)" : "Weakness";
                 return [
                   `${value} (edges: ${p?.edges ?? 0}, phase: ${p?.phase ?? "—"})`,
-                  "Weakness",
+                  label,
                 ];
               }
               return [value as number | string, name as string];
