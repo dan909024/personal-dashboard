@@ -57,6 +57,20 @@ function groupByDay(rows: ScreenTimeRow[]): DayGroup[] {
     });
 }
 
+// Render "2026-05-09" → "9 May 2026". Uses UTC parsing so we don't
+// shift the date by a day on either side of midnight.
+function formatDate(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(d);
+}
+
 export default async function ScreentimePage() {
   const rows = await getRecentScreentime(7);
   const groups = groupByDay(rows);
@@ -193,7 +207,7 @@ function DayCard({ group }: { group: DayGroup }) {
   return (
     <section className="border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4">
       <div className="flex items-baseline justify-between mb-3">
-        <p className="text-sm font-semibold text-white">{group.date}</p>
+        <p className="text-sm font-semibold text-white">{formatDate(group.date)}</p>
         <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
           {Object.entries(group.bySource)
             .map(([s, m]) => `${s}: ${fmtPhoneMinutes(m)}`)
