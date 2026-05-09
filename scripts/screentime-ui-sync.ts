@@ -31,7 +31,13 @@
  *     entry.
  */
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -222,9 +228,38 @@ function secondsSinceLastSuccess(state: State): number {
   return Math.floor((Date.now() - t) / 1000);
 }
 
+// Lockfile to prevent overlapping runs — launchd fires every 2
+// minutes but a real scrape takes 3-5, so without this we'd cascade
+// into 2-3 concurrent scrapes all driving System Settings at once.
+const LOCK_PATH = join(STATE_DIR, "lock");
+const LOCK_STALE_S = 15 * 60; // assume stale after 15 min (covers slowest scrape + buffer)
+
+function acquireLock(): boolean {
+  if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
+  if (existsSync(LOCK_PATH)) {
+    try {
+      const ageS = Math.floor(
+        (Date.now() - Number(readFileSync(LOCK_PATH, "utf8"))) / 1000
+      );
+      if (Number.isFinite(ageS) && ageS < LOCK_STALE_S) return false;
+    } catch { /* fall through and overwrite stale lock */ }
+  }
+  writeFileSync(LOCK_PATH, String(Date.now()));
+  return true;
+}
+
+function releaseLock() {
+  try { if (existsSync(LOCK_PATH)) unlinkSync(LOCK_PATH); } catch {}
+}
+
 async function main() {
   const startedAt = new Date().toISOString();
   console.log(`[screentime-ui-sync] started ${startedAt}`);
+
+  if (!acquireLock()) {
+    console.log("[screentime-ui-sync] skipping — another scrape in progress (lock held)");
+    return;
+  }
 
   const state = readState();
 
@@ -246,6 +281,14 @@ async function main() {
       console.log(
         `[screentime-ui-sync] force-trigger ${forceTriggerAt} (age ${triggerAge}s) — bypassing gates`
       );
+      // Mark consumed RIGHT NOW (before scraping). If the scrape
+      // crashes or the POST fails, future invocations won't re-fire
+      // the same trigger forever. The user can click Refresh again
+      // if they really want to retry.
+      writeState({
+        lastSuccessAt: state.lastSuccessAt,
+        lastConsumedForceTriggerAt: forceTriggerAt,
+      });
     }
   }
 
@@ -317,6 +360,11 @@ async function main() {
     lastConsumedForceTriggerAt: forceTriggerAt || state.lastConsumedForceTriggerAt,
   });
 }
+
+// Release the lockfile on every exit path — process.exit, uncaught
+// throw, success. Without this, a crashed scrape leaves the lock
+// held until LOCK_STALE_S elapses, blocking legitimate runs.
+process.on("exit", () => releaseLock());
 
 main().catch((e) => {
   console.error("[screentime-ui-sync] fatal:", (e as Error).message);
