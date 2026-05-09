@@ -51,6 +51,7 @@ export function WeaknessAltarTile({
   const [worshipOpen, setWorshipOpen] = useState(false);
   const [selfHelpOpen, setSelfHelpOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [peekFeet, setPeekFeet] = useState(false);
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -117,14 +118,31 @@ export function WeaknessAltarTile({
           </p>
           <p className="text-[11px] text-zinc-400 italic mt-0.5">{ALTAR_TAGLINE}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setPhotoOpen(true)}
-          aria-label="View Harley full size"
-          title="Click to view full photo"
-          className="hidden sm:block w-20 h-20 md:w-24 md:h-24 shrink-0 rounded-full bg-cover bg-center ring-2 ring-rose-400/60 hover:ring-rose-300 hover:scale-[1.03] transition-all shadow-lg cursor-pointer self-center"
-          style={{ backgroundImage: `url('${coachPhotoUrl}')` }}
-        />
+        <div className="hidden sm:flex flex-col items-center gap-1.5 shrink-0 self-center">
+          <button
+            type="button"
+            onClick={() => setPhotoOpen(true)}
+            aria-label="View Harley full size"
+            title="Click to view full photo"
+            className={`w-20 h-20 md:w-24 md:h-24 rounded-full bg-cover ring-2 ring-rose-400/60 hover:ring-rose-300 hover:scale-[1.03] transition-all shadow-lg cursor-pointer ${
+              peekFeet ? "bg-bottom" : "bg-top"
+            }`}
+            style={{ backgroundImage: `url('${coachPhotoUrl}')` }}
+          />
+          <button
+            type="button"
+            onClick={() => setPeekFeet((v) => !v)}
+            aria-pressed={peekFeet}
+            title={peekFeet ? "Back to face" : "Peek at Goddess' feet"}
+            className={`text-[9px] uppercase tracking-widest px-2 py-0.5 border transition-colors ${
+              peekFeet
+                ? "border-rose-400 bg-rose-950/60 text-rose-100"
+                : "border-rose-900/60 bg-rose-950/30 text-rose-300/80 hover:border-rose-500 hover:text-rose-200"
+            }`}
+          >
+            👣 {peekFeet ? "face" : "peek feet"}
+          </button>
+        </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
           {data.orgasmAllowed === "yes" ? (
             <button
