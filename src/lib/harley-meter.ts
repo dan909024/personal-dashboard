@@ -137,3 +137,50 @@ export const getHarleyMeter = unstable_cache(
   ["dashboard:harley-meter"],
   { revalidate: 30 }
 );
+
+export type HarleyRuleStatus = {
+  id: "wake" | "bed" | "gym" | "steps" | "water" | "tasks";
+  label: string;
+  /** 0..1 input score (same number that feeds the meter average). */
+  score: number;
+  /**
+   * Bucket: "met" (≥0.9), "at-risk" (0.5..0.9), "failed" (<0.5).
+   * The Goddess panel renders these with different colors.
+   */
+  state: "met" | "at-risk" | "failed";
+};
+
+function bucket(score: number): HarleyRuleStatus["state"] {
+  if (score >= 0.9) return "met";
+  if (score >= 0.5) return "at-risk";
+  return "failed";
+}
+
+/**
+ * Per-rule breakdown for the Goddess panel "at-risk rules" card. Same
+ * inputs that feed getHarleyMeter, exposed individually so the panel
+ * can surface what's slipping.
+ */
+export const getHarleyMeterDetail = unstable_cache(
+  async (): Promise<HarleyRuleStatus[]> => {
+    if (!isConfigured()) return [];
+    const [wake, bed, gym, steps, water, tasks] = await Promise.all([
+      wakeInput(),
+      bedInput(),
+      gymInput(),
+      stepsInput(),
+      waterInput(),
+      harleyTasksInput(),
+    ]);
+    return [
+      { id: "wake", label: "Wake by 06:30", score: wake, state: bucket(wake) },
+      { id: "bed", label: "Bed by 22:30", score: bed, state: bucket(bed) },
+      { id: "gym", label: "Gym 4+/week", score: gym, state: bucket(gym) },
+      { id: "steps", label: "70k steps/week", score: steps, state: bucket(steps) },
+      { id: "water", label: "3.3 L water/day", score: water, state: bucket(water) },
+      { id: "tasks", label: "Harley tasks 4+/wk", score: tasks, state: bucket(tasks) },
+    ];
+  },
+  ["dashboard:harley-meter-detail"],
+  { revalidate: 30 }
+);

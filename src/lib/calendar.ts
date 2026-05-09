@@ -46,7 +46,9 @@ function calendarClient(): calendar_v3.Calendar {
   if (cachedClient) return cachedClient;
   const auth = new google.auth.GoogleAuth({
     credentials: loadServiceAccountCreds(),
-    scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
+    // Full events scope so the Goddess panel can create Harley-authored
+    // tasks via createHarleyCalendarEvent. Read paths still work the same.
+    scopes: ["https://www.googleapis.com/auth/calendar.events"],
   });
   cachedClient = google.calendar({ version: "v3", auth });
   return cachedClient;
@@ -124,4 +126,44 @@ export async function getHarleyTaskWindow(): Promise<HarleyTaskWindow> {
   }
 
   return { past, future };
+}
+
+/**
+ * Create a single calendar event on the shared calendar. Goddess panel
+ * uses this to add Harley tasks (which then count toward the
+ * harley-tasks rule once their start time has passed).
+ *
+ * The event is authored by the service account, so isHarleyAuthored()
+ * (which checks creator !== DASHBOARD_OWNER_EMAIL) will correctly tag
+ * it as Harley-authored. The Telegram polling cron will see it and
+ * notify Daniel within 5 minutes.
+ */
+export async function createHarleyCalendarEvent(opts: {
+  summary: string;
+  startISO: string;
+  durationMin?: number;
+}): Promise<{ eventId: string; htmlLink: string | null }> {
+  if (!isCalendarConfigured()) {
+    throw new Error("calendar not configured");
+  }
+  const calendarId = process.env.GOOGLE_CALENDAR_ID || "";
+  const cal = calendarClient();
+
+  const startMs = Date.parse(opts.startISO);
+  if (!Number.isFinite(startMs)) throw new Error("invalid startISO");
+  const durationMin = opts.durationMin && opts.durationMin > 0 ? opts.durationMin : 30;
+  const endISO = new Date(startMs + durationMin * 60_000).toISOString();
+
+  const res = await cal.events.insert({
+    calendarId,
+    requestBody: {
+      summary: opts.summary,
+      start: { dateTime: opts.startISO, timeZone: "Australia/Sydney" },
+      end: { dateTime: endISO, timeZone: "Australia/Sydney" },
+    },
+  });
+  return {
+    eventId: res.data.id || "",
+    htmlLink: res.data.htmlLink || null,
+  };
 }

@@ -139,6 +139,7 @@ export const TAB_SCHEMAS = {
     "First seen at",
     "Notified at",
   ],
+  "Goddess Audit": ["Timestamp", "Action", "Detail"],
 } as const;
 
 export type TabName = keyof typeof TAB_SCHEMAS;
@@ -1496,8 +1497,17 @@ export async function appendMonthlyFineIfMissing(
     String(settings.get("double_next_month") ?? "")
       .trim()
       .toLowerCase() === "yes";
-  const finalAmount = doubled ? amount * 2 : amount;
-  const finalReason = doubled ? `${reason} (doubled)` : reason;
+  const hardMode =
+    String(settings.get("hard_mode") ?? "").trim().toLowerCase() === "yes";
+  // Multipliers stack: hard_mode + double_next_month → 4× one-time.
+  const multiplier = (doubled ? 2 : 1) * (hardMode ? 2 : 1);
+  const finalAmount = amount * multiplier;
+  const reasonModifiers: string[] = [];
+  if (doubled) reasonModifiers.push("doubled");
+  if (hardMode) reasonModifiers.push("hard-mode");
+  const finalReason = reasonModifiers.length
+    ? `${reason} (${reasonModifiers.join(" + ")})`
+    : reason;
 
   const today = todaySydneyISO();
   await client.spreadsheets.values.append({
@@ -1702,6 +1712,61 @@ export async function markAllUnpaidPaid(): Promise<number> {
   return updates.length;
 }
 
+// ---------- Goddess audit log ----------
+
+export type GoddessAuditEntry = {
+  timestamp: string;
+  action: string;
+  detail: string;
+};
+
+/**
+ * Append a single audit row. Called by every server action in
+ * src/app/harley/actions.ts. Failures are swallowed — never block a
+ * primary action because the audit log can't be written.
+ */
+export async function appendGoddessAudit(
+  action: string,
+  detail: string
+): Promise<void> {
+  try {
+    await ensureTab("Goddess Audit");
+    const client = sheetsClient();
+    await client.spreadsheets.values.append({
+      spreadsheetId: sheetId(),
+      range: "Goddess Audit!A1",
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[new Date().toISOString(), action, detail.slice(0, 500)]] },
+    });
+  } catch (e) {
+    console.error("[goddess-audit] append failed:", (e as Error).message);
+  }
+}
+
+/**
+ * Read the most recent N audit entries, newest-first. Uncached so the
+ * panel reflects the latest actions immediately.
+ */
+export async function getRecentGoddessAudit(
+  limit = 5
+): Promise<GoddessAuditEntry[]> {
+  const rows = await readTab("Goddess Audit");
+  if (!rows || rows.length < 2) return [];
+  const out: GoddessAuditEntry[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const ts = String(r[0] ?? "").trim();
+    if (!ts) continue;
+    out.push({
+      timestamp: ts,
+      action: String(r[1] ?? ""),
+      detail: String(r[2] ?? ""),
+    });
+  }
+  out.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+  return out.slice(0, limit);
+}
 /**
  * Count Whoop workouts whose Date column is in [startISO, endISO]
  * inclusive (both YYYY-MM-DD). Used by rule-eval to score the gym rule

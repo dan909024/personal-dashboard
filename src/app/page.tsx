@@ -550,6 +550,7 @@ export default async function Dashboard({
         {/* Bottom strip */}
         <div className="px-4 pb-6 flex flex-wrap gap-2">
           <BottomLink label="Rules" href="/rules" />
+          <BottomLink label="Goddess panel" href="/harley" />
           <BottomLink label="Proof folder" href={DRIVE_FOLDER_URL} />
           <BottomLink label="Photos" href="#" />
           <BottomLink label="Coach notes" href="#" />
