@@ -20,7 +20,8 @@ export type HarleyRuleId =
   | "gym"
   | "steps"
   | "water"
-  | "tasks";
+  | "tasks"
+  | "slip";
 
 export type HarleyRule = {
   id: HarleyRuleId;
@@ -35,7 +36,11 @@ export const HARLEY_RULES: Record<HarleyRuleId, HarleyRule> = {
   steps: { id: "steps", label: "70k steps /week", source: "Apple Health" },
   water: { id: "water", label: "3.3 L water /day avg", source: "Apple Health · dietaryWater" },
   tasks: { id: "tasks", label: "Harley calendar tasks 4+/week", source: "Google Calendar (`weekly`)" },
+  slip: { id: "slip", label: "Cumming without permission", source: "WeaknessAltar Slipped button" },
 };
+
+/** Per-rule fine amount in AUD. Used by manual slip logging and the auto rule-eval cron. */
+export const SLIP_FINE_AMOUNT = 20;
 
 export function lookupRule(ruleId: string | undefined): HarleyRule | null {
   if (!ruleId) return null;
