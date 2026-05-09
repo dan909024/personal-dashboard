@@ -50,10 +50,18 @@ function run() {
 }
 
 function main() {
-  // Hard reset System Settings — it loves to return to a stale
-  // pane on relaunch otherwise.
+  // Hard reset System Settings — it loves to return to a stale pane on
+  // relaunch otherwise.
   APP.doShellScript("osascript -e 'tell application \"System Settings\" to quit' || true");
   APP.doShellScript("sleep 2");
+  // Foreground launch + activate. We *tried* `open -gja` + `reopen` to
+  // run the scrape silently in the background, but SwiftUI's lazy
+  // virtualised lists only materialise rows for visible windows —
+  // background mode produced rows=0 every time. The idle gate in the
+  // TS driver (~/.screentime-scraper/state + ioreg HID idle) ensures
+  // this only runs when the user is away from the keyboard, so the
+  // brief focus-steal isn't actually seen. We also quit System
+  // Settings on completion (see below) to leave no visible residue.
   APP.doShellScript("osascript -e 'tell application \"System Settings\" to activate'");
   APP.doShellScript("sleep 1");
   APP.doShellScript("open 'x-apple.systempreferences:com.apple.Screen-Time-Settings.extension'");
@@ -139,6 +147,12 @@ function main() {
     }
   }
   merged.rows = Array.from(seen.values());
+
+  // Clean up: quit System Settings so the user doesn't see a stray
+  // window when they come back from being idle. Best-effort.
+  try {
+    APP.doShellScript("osascript -e 'tell application \"System Settings\" to quit' || true");
+  } catch (e) { /* ignore */ }
 
   if (!merged.device) {
     return { ok: false, error: "scrape produced no device — view did not settle", stage: "scrape" };

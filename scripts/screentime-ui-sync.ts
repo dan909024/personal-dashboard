@@ -30,8 +30,9 @@
  *     and iPhone, otherwise the device popup won't have an iPhone
  *     entry.
  */
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { execFileSync, execSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 const INGEST_URL = process.env.SCREENTIME_INGEST_URL || "";
@@ -39,6 +40,25 @@ const INGEST_SECRET = process.env.SCREENTIME_INGEST_SECRET || "";
 const TZ = process.env.SCREENTIME_TZ || "Australia/Sydney";
 const SOURCE = "mac_ui_iphone";
 const SCRAPER = join(__dirname, "screentime-ui-scrape.js");
+
+// Gating: launchd fires this job every 2 minutes. The scrape itself
+// takes 3-5 minutes and steals no focus, but it does drive System
+// Settings, so we don't want it running constantly. Two gates:
+//
+//   1. Idle gate — only run when the user has been idle for at least
+//      IDLE_THRESHOLD_S (HID-input-quiet seconds). Default 120 s.
+//      Override via SCREENTIME_UI_IDLE_S env.
+//
+//   2. Cooldown — after a successful scrape, sleep for
+//      COOLDOWN_S before another can fire. Default 4 hours (14400 s).
+//      Override via SCREENTIME_UI_COOLDOWN_S env.
+//
+// State is persisted to ~/.screentime-scraper/state.json so cooldown
+// survives launchd job restarts.
+const IDLE_THRESHOLD_S = Number(process.env.SCREENTIME_UI_IDLE_S) || 120;
+const COOLDOWN_S = Number(process.env.SCREENTIME_UI_COOLDOWN_S) || 4 * 60 * 60;
+const STATE_DIR = join(homedir(), ".screentime-scraper");
+const STATE_PATH = join(STATE_DIR, "state.json");
 
 if (!INGEST_URL || !INGEST_SECRET) {
   console.error(
@@ -137,9 +157,68 @@ async function postPayload(payload: {
   return { ok: res.ok, status: res.status, body };
 }
 
+function readIdleSeconds(): number {
+  // Reads HIDIdleTime (nanoseconds since last input) from ioreg.
+  // Returns elapsed seconds. Falls back to 0 on parse failure so a
+  // broken read errs on the side of "not idle" — won't run at all.
+  try {
+    const out = execSync(
+      "/usr/sbin/ioreg -c IOHIDSystem | grep HIDIdleTime",
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+    const match = out.match(/HIDIdleTime"\s*=\s*(\d+)/);
+    if (!match) return 0;
+    return Math.floor(Number(match[1]) / 1e9);
+  } catch {
+    return 0;
+  }
+}
+
+type State = { lastSuccessAt?: string };
+function readState(): State {
+  try {
+    if (!existsSync(STATE_PATH)) return {};
+    return JSON.parse(readFileSync(STATE_PATH, "utf8")) as State;
+  } catch {
+    return {};
+  }
+}
+function writeState(s: State) {
+  if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
+  writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
+}
+
+function secondsSinceLastSuccess(state: State): number {
+  if (!state.lastSuccessAt) return Infinity;
+  const t = Date.parse(state.lastSuccessAt);
+  if (!Number.isFinite(t)) return Infinity;
+  return Math.floor((Date.now() - t) / 1000);
+}
+
 async function main() {
   const startedAt = new Date().toISOString();
   console.log(`[screentime-ui-sync] started ${startedAt}`);
+
+  // Cooldown gate — skip silently if we successfully scraped recently.
+  const state = readState();
+  const sinceLast = secondsSinceLastSuccess(state);
+  if (sinceLast < COOLDOWN_S) {
+    console.log(
+      `[screentime-ui-sync] skipping — cooldown active (last success ${sinceLast}s ago, need ${COOLDOWN_S}s)`
+    );
+    return;
+  }
+
+  // Idle gate — only run when the user has been quiet for at least
+  // IDLE_THRESHOLD_S seconds. launchd retries every 2 minutes; we'll
+  // catch the first qualifying idle window.
+  const idle = readIdleSeconds();
+  if (idle < IDLE_THRESHOLD_S) {
+    console.log(
+      `[screentime-ui-sync] skipping — user active (idle ${idle}s, need ${IDLE_THRESHOLD_S}s)`
+    );
+    return;
+  }
 
   const result = runScraper();
   if (!result.ok) {
@@ -178,6 +257,9 @@ async function main() {
   console.log(
     `[screentime-ui-sync] posted ${date}: ${items.length} apps, total ${items.reduce((a, b) => a + b.minutes, 0)} min`
   );
+
+  // Mark cooldown — next scrape can't fire until COOLDOWN_S elapses.
+  writeState({ lastSuccessAt: new Date().toISOString() });
 }
 
 main().catch((e) => {

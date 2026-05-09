@@ -70,15 +70,19 @@
     <string>Australia/Sydney</string>
   </dict>
 
-  <!-- Daily at 21:00 local time. If the Mac is asleep at 21:00,
-       launchd fires the missed run on next wake. -->
-  <key>StartCalendarInterval</key>
-  <dict>
-    <key>Hour</key>
-    <integer>21</integer>
-    <key>Minute</key>
-    <integer>0</integer>
-  </dict>
+  <!-- Every 2 minutes. The scrape itself takes 3-5 minutes (polling
+       SwiftUI's lazy-rendering table), but the script gates on idle
+       time and a 4-hour cooldown — most invocations exit in <1 second
+       without doing anything. The scraper uses `open -gja` + AX
+       scripting so when it does run, the active Space never switches.
+       If the Mac is asleep, launchd fires missed runs on next wake.
+
+       Tunables (override in EnvironmentVariables above):
+         SCREENTIME_UI_IDLE_S      default 120  (2 min HID idle)
+         SCREENTIME_UI_COOLDOWN_S  default 14400 (4 h between successes)
+  -->
+  <key>StartInterval</key>
+  <integer>120</integer>
 
   <!-- Append (don't overwrite) so the running log accumulates. -->
   <key>StandardOutPath</key>
