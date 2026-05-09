@@ -27,6 +27,7 @@ import { getDashboardWeakness } from "@/lib/weakness";
 import { getLatestCoachPhotoUrl, COACH_PHOTO_FALLBACK } from "@/lib/coach-photo";
 import { WeaknessAltarTile } from "@/components/tiles/WeaknessAltarTile";
 import { HarleyCalendarTile } from "@/components/tiles/HarleyCalendarTile";
+import { GoddessFeetPanel } from "@/components/GoddessFeetPanel";
 import { SyncButton } from "@/components/SyncButton";
 import {
   dedupeAppsPreferMac,
@@ -533,6 +534,11 @@ export default async function Dashboard({
         {/* Tamper log — proves Whoop sleep stats are untouched (or shows the diff if not) */}
         <div className="px-4 pb-4">
           <TamperLog edits={sleepEdits} configured={configured} />
+        </div>
+
+        {/* Peek at Goddess' feet — collapsible reveal of feet portion of coach photo */}
+        <div className="px-4 pb-4">
+          <GoddessFeetPanel coachPhotoUrl={coachPhotoUrl ?? COACH_PHOTO_FALLBACK} />
         </div>
 
         {/* Proof Drops embed */}
