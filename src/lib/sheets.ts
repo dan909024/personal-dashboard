@@ -1453,8 +1453,8 @@ export const getHarleyBalance = unstable_cache(
  * Reason="Monthly fee — <Month> <Year>" already exists for the
  * current Sydney month. Returns whether a row was appended.
  *
- * If the `hard_mode` Setting is "yes" when this fires, the appended
- * amount is 2× and the Reason is tagged "(hard-mode)".
+ * The monthly fee is intentionally excluded from `hard_mode` doubling
+ * — it's a fixed retainer, not a punishment.
  */
 export async function appendMonthlyFineIfMissing(
   amount = 1000
@@ -1462,7 +1462,6 @@ export async function appendMonthlyFineIfMissing(
   appended: boolean;
   reason: string;
   monthLabel: string;
-  doubled: boolean;
   finalAmount: number;
 }> {
   const client = sheetsClient();
@@ -1481,22 +1480,10 @@ export async function appendMonthlyFineIfMissing(
       const r = rows[i];
       if (!r) continue;
       if (String(r[2] ?? "").trim() === reason) {
-        return {
-          appended: false,
-          reason,
-          monthLabel,
-          doubled: false,
-          finalAmount: amount,
-        };
+        return { appended: false, reason, monthLabel, finalAmount: amount };
       }
     }
   }
-
-  const settings = await readSettingsTab();
-  const hardMode =
-    String(settings.get("hard_mode") ?? "").trim().toLowerCase() === "yes";
-  const finalAmount = hardMode ? amount * 2 : amount;
-  const finalReason = hardMode ? `${reason} (hard-mode)` : reason;
 
   const today = todaySydneyISO();
   await client.spreadsheets.values.append({
@@ -1505,17 +1492,11 @@ export async function appendMonthlyFineIfMissing(
     valueInputOption: "USER_ENTERED",
     requestBody: {
       // Empty 6th column — monthly fee isn't tied to a Harley Meter rule.
-      values: [[today, finalAmount, finalReason, "auto", "no", ""]],
+      values: [[today, amount, reason, "auto", "no", ""]],
     },
   });
 
-  return {
-    appended: true,
-    reason: finalReason,
-    monthLabel,
-    doubled: hardMode,
-    finalAmount,
-  };
+  return { appended: true, reason, monthLabel, finalAmount: amount };
 }
 
 /**

@@ -385,6 +385,51 @@ export function HarleyForm({
           </div>
         </div>
 
+        {/* Override */}
+        <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
+            Override
+          </p>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <button
+              type="button"
+              onClick={onAllow}
+              disabled={isPending || allowed === "yes"}
+              className={`px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-40 ${
+                armed === "allow"
+                  ? "border-emerald-300 bg-emerald-900/70 text-emerald-100"
+                  : "border-emerald-700 bg-emerald-950/40 text-emerald-200 hover:border-emerald-400 hover:bg-emerald-900/60"
+              }`}
+            >
+              {armed === "allow" ? "Tap again ✓" : "Allow now"}
+            </button>
+            <button
+              type="button"
+              onClick={onDeny}
+              disabled={isPending || allowed === "no"}
+              className={`px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-40 ${
+                armed === "deny"
+                  ? "border-rose-300 bg-rose-900/70 text-rose-100"
+                  : "border-rose-700 bg-rose-950/40 text-rose-200 hover:border-rose-400 hover:bg-rose-900/60"
+              }`}
+            >
+              {armed === "deny" ? "Tap again ✓" : "Deny now"}
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={isPending}
+            className={`w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-50 ${
+              armed === "clear"
+                ? "border-amber-400 bg-amber-950/40 text-amber-200"
+                : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white"
+            }`}
+          >
+            {armed === "clear" ? "Tap again to clear target" : "Clear denial target"}
+          </button>
+        </div>
+
         {/* At-risk rules */}
         {ruleDetail.length > 0 && (
           <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
@@ -754,59 +799,14 @@ export function HarleyForm({
           </button>
         </div>
 
-        {/* Toggle + clear */}
-        <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
-          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
-            Override
-          </p>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <button
-              type="button"
-              onClick={onAllow}
-              disabled={isPending || allowed === "yes"}
-              className={`px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-40 ${
-                armed === "allow"
-                  ? "border-emerald-300 bg-emerald-900/70 text-emerald-100"
-                  : "border-emerald-700 bg-emerald-950/40 text-emerald-200 hover:border-emerald-400 hover:bg-emerald-900/60"
-              }`}
-            >
-              {armed === "allow" ? "Tap again ✓" : "Allow now"}
-            </button>
-            <button
-              type="button"
-              onClick={onDeny}
-              disabled={isPending || allowed === "no"}
-              className={`px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-40 ${
-                armed === "deny"
-                  ? "border-rose-300 bg-rose-900/70 text-rose-100"
-                  : "border-rose-700 bg-rose-950/40 text-rose-200 hover:border-rose-400 hover:bg-rose-900/60"
-              }`}
-            >
-              {armed === "deny" ? "Tap again ✓" : "Deny now"}
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={onClear}
-            disabled={isPending}
-            className={`w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border transition-colors disabled:opacity-50 ${
-              armed === "clear"
-                ? "border-amber-400 bg-amber-950/40 text-amber-200"
-                : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white"
-            }`}
-          >
-            {armed === "clear" ? "Tap again to clear target" : "Clear denial target"}
-          </button>
-        </div>
-
         {/* Hard mode + audit log */}
         <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
           <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
             Hard mode
           </p>
           <p className="text-[11px] text-zinc-500 mb-3 italic">
-            Doubles every fine while ON: manual fines you add here, the
-            monthly fee, and any auto rule-eval fines that fire.
+            Doubles every fine while ON: manual fines you add here and any
+            auto rule-eval fines that fire. Monthly fee is excluded.
           </p>
           <button
             type="button"
