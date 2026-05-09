@@ -82,8 +82,12 @@ function fmtTime(d: Date): string {
 //
 // Three fixed buckets with daily targets. Today's minutes per bucket
 // drive the SCREENTIME tile's tick/X. Match is on the resolved display
-// name, so bundle ids (Mac knowledgeC.db) and friendly names (iOS
-// Shortcut) both hit the same bucket via APP_DISPLAY_NAMES.
+// name. Sources for iPhone-side apps (Instagram, dating, etc.) come
+// from the mac_ui_iphone scraper (scripts/screentime-ui-sync.ts), which
+// reads the Settings → Screen Time pane and posts friendly names like
+// "Raya" or "Instagram" verbatim — no bundle-id resolution needed.
+// Mac apps from knowledgeC.db post bundle ids and resolve to friendly
+// names via APP_DISPLAY_NAMES.
 
 type ScreentimeBucket = {
   label: string;
