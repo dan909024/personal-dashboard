@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for the iPhone Screen Time UI scraper.
+
+  Runs daily at 21:00 (local time). Opens System Settings briefly,
+  switches the Device popup to iPhone, scrapes the App & Website
+  Activity table, POSTs to /api/screentime/ingest with
+  source="mac_ui_iphone". Window steals focus for ~10–15 seconds
+  during the scrape.
+
+  Companion to com.danielferrari.screentime-sync.plist (the
+  knowledgeC.db Mac collector). Both run; readers in the dashboard
+  decide which row wins per (date, app).
+
+  Install:
+    1. Edit the placeholders below (REPLACE_*).
+    2. Copy:
+         cp scripts/com.danielferrari.screentime-ui-sync.plist \
+            ~/Library/LaunchAgents/com.danielferrari.screentime-ui-sync.plist
+    3. Load it:
+         launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.danielferrari.screentime-ui-sync.plist
+    4. (Optional) Trigger now:
+         launchctl kickstart -k gui/$UID/com.danielferrari.screentime-ui-sync
+
+  Inspect:
+    launchctl list | grep screentime-ui
+    tail -f /tmp/screentime-ui-sync.log
+
+  Uninstall:
+    launchctl bootout gui/$UID ~/Library/LaunchAgents/com.danielferrari.screentime-ui-sync.plist
+    rm ~/Library/LaunchAgents/com.danielferrari.screentime-ui-sync.plist
+
+  REQUIRED ONE-TIME SETUP: Accessibility permission for /usr/bin/osascript.
+  System Settings → Privacy & Security → Accessibility → "+", press
+  Cmd+Shift+G, enter /usr/bin/osascript, add it, toggle on.
+  TCC tracks the leaf binary that opens the AX connection — granting
+  Accessibility to the wrapper (env, npx, tsx, node) does not propagate.
+
+  Also: enable "Share Across Devices" in Settings → Screen Time on both
+  the Mac and the iPhone, otherwise the device popup will not have an
+  iPhone entry.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.danielferrari.screentime-ui-sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>npx</string>
+    <string>--yes</string>
+    <string>tsx</string>
+    <string>REPLACE_WITH_ABSOLUTE_PATH/Personal Dashboard/scripts/screentime-ui-sync.ts</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>REPLACE_WITH_ABSOLUTE_PATH/Personal Dashboard</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>SCREENTIME_INGEST_URL</key>
+    <string>REPLACE_WITH_HTTPS_URL/api/screentime/ingest</string>
+    <key>SCREENTIME_INGEST_SECRET</key>
+    <string>REPLACE_WITH_SHARED_SECRET</string>
+    <key>SCREENTIME_TZ</key>
+    <string>Australia/Sydney</string>
+  </dict>
+
+  <!-- Daily at 21:00 local time. If the Mac is asleep at 21:00,
+       launchd fires the missed run on next wake. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>21</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <!-- Append (don't overwrite) so the running log accumulates. -->
+  <key>StandardOutPath</key>
+  <string>/tmp/screentime-ui-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/screentime-ui-sync.log</string>
+</dict>
+</plist>

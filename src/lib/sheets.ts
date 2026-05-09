@@ -1767,7 +1767,6 @@ export async function getRecentGoddessAudit(
   out.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
   return out.slice(0, limit);
 }
-
 /**
  * Count Whoop workouts whose Date column is in [startISO, endISO]
  * inclusive (both YYYY-MM-DD). Used by rule-eval to score the gym rule
