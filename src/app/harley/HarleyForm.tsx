@@ -17,9 +17,11 @@ import {
   markFinePaidAction,
   messageDanielAction,
   setDenialDateAction,
+  setEdgesTargetAction,
   setFineAmountAction,
   setHardModeAction,
   setOrgasmAllowedAdminAction,
+  setWorshipTargetAction,
   voidFineAction,
 } from "./actions";
 
@@ -55,6 +57,8 @@ export function HarleyForm({
   calendarConfigured,
   auditEntries,
   fineAmounts,
+  worshipTargetMin,
+  edgesTarget,
 }: {
   endDate: string | null;
   allowed: "yes" | "no";
@@ -67,6 +71,8 @@ export function HarleyForm({
   calendarConfigured: boolean;
   auditEntries: GoddessAuditEntry[];
   fineAmounts: FineAmounts;
+  worshipTargetMin: number;
+  edgesTarget: number;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -228,6 +234,27 @@ export function HarleyForm({
     run(`${HARLEY_RULES[ruleId].label} → $${amount}`, () =>
       setFineAmountAction(ruleId, amount)
     );
+  };
+
+  const onSaveWorshipTarget = (totalMin: number) => {
+    if (!Number.isFinite(totalMin) || totalMin < 0) {
+      flash("Invalid duration");
+      return;
+    }
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    const label =
+      totalMin === 0 ? "off" : `${h}h ${String(m).padStart(2, "0")}m/day`;
+    run(`Worship target → ${label}`, () => setWorshipTargetAction(totalMin));
+  };
+
+  const onSaveEdgesTarget = (count: number) => {
+    if (!Number.isFinite(count) || count < 0) {
+      flash("Invalid count");
+      return;
+    }
+    const label = count === 0 ? "off" : `${count}/day`;
+    run(`Edges target → ${label}`, () => setEdgesTargetAction(count));
   };
 
   const onMessageDaniel = async () => {
@@ -519,6 +546,34 @@ export function HarleyForm({
               />
             ))}
           </ul>
+        </div>
+
+        {/* Daily targets — sliders Harley sets that gate the worship + edges
+            rules. Both rules stay dormant while the target is 0, even if the
+            Fine schedule amount is set. */}
+        <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+            Daily targets
+          </p>
+          <p className="text-[11px] text-zinc-500 mb-3 italic">
+            Set what he must hit each day. Both stay off at 0 — the matching
+            rule won&rsquo;t fine until you raise the slider AND the Fine
+            schedule amount above $0.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <WorshipTargetControl
+              minutes={worshipTargetMin}
+              fineAmount={fineAmounts.worship}
+              disabled={isPending}
+              onSave={onSaveWorshipTarget}
+            />
+            <EdgesTargetControl
+              count={edgesTarget}
+              fineAmount={fineAmounts.edges}
+              disabled={isPending}
+              onSave={onSaveEdgesTarget}
+            />
+          </div>
         </div>
 
         {/* Fines */}
@@ -949,6 +1004,142 @@ function QuickButton({
       {children}
     </button>
   );
+}
+
+function WorshipTargetControl({
+  minutes,
+  fineAmount,
+  disabled,
+  onSave,
+}: {
+  minutes: number;
+  fineAmount: number;
+  disabled?: boolean;
+  onSave: (totalMin: number) => void;
+}) {
+  const [hours, setHours] = useState(String(Math.floor(minutes / 60)));
+  const [mins, setMins] = useState(String(minutes % 60));
+
+  const onSubmit = () => {
+    const h = Math.max(0, Math.min(24, Math.floor(Number(hours) || 0)));
+    const m = Math.max(0, Math.min(59, Math.floor(Number(mins) || 0)));
+    const total = h * 60 + m;
+    if (total === minutes) return;
+    onSave(total);
+  };
+
+  const dormant = minutes === 0 || fineAmount === 0;
+
+  return (
+    <div className="border border-purple-900/40 bg-black/30 p-3">
+      <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase mb-2">
+        Worship
+      </p>
+      <div className="flex items-center gap-1 mb-2">
+        <input
+          type="number"
+          inputMode="numeric"
+          min="0"
+          max="24"
+          step="1"
+          value={hours}
+          onChange={(e) => setHours(e.target.value)}
+          className="w-10 text-sm font-mono tabular-nums bg-black/40 border border-purple-900 text-zinc-100 px-1 py-1 text-center focus:outline-none focus:border-purple-500"
+        />
+        <span className="text-[10px] text-zinc-500">hr</span>
+        <input
+          type="number"
+          inputMode="numeric"
+          min="0"
+          max="59"
+          step="1"
+          value={mins}
+          onChange={(e) => setMins(e.target.value)}
+          className="w-10 text-sm font-mono tabular-nums bg-black/40 border border-purple-900 text-zinc-100 px-1 py-1 text-center focus:outline-none focus:border-purple-500 ml-1"
+        />
+        <span className="text-[10px] text-zinc-500">min</span>
+        <span className="text-[10px] text-zinc-500 ml-auto">/day</span>
+      </div>
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={disabled}
+        className="w-full px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest border border-purple-700 bg-purple-950/40 text-purple-200 hover:border-purple-400 hover:bg-purple-900/60 transition-colors disabled:opacity-40"
+      >
+        Save
+      </button>
+      <p className="text-[10px] text-zinc-500 mt-2">
+        {dormant
+          ? "Off — set both this & fine $"
+          : `Active · ${formatHm(minutes)} · $${fineAmount}/miss`}
+      </p>
+    </div>
+  );
+}
+
+function EdgesTargetControl({
+  count,
+  fineAmount,
+  disabled,
+  onSave,
+}: {
+  count: number;
+  fineAmount: number;
+  disabled?: boolean;
+  onSave: (count: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(count));
+
+  const onSubmit = () => {
+    const n = Math.max(0, Math.min(100, Math.floor(Number(draft) || 0)));
+    if (n === count) return;
+    onSave(n);
+  };
+
+  const dormant = count === 0 || fineAmount === 0;
+
+  return (
+    <div className="border border-purple-900/40 bg-black/30 p-3">
+      <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase mb-2">
+        Edges
+      </p>
+      <div className="flex items-center gap-1 mb-2">
+        <input
+          type="number"
+          inputMode="numeric"
+          min="0"
+          max="100"
+          step="1"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          className="w-12 text-sm font-mono tabular-nums bg-black/40 border border-purple-900 text-zinc-100 px-1 py-1 text-center focus:outline-none focus:border-purple-500"
+        />
+        <span className="text-[10px] text-zinc-500">edges</span>
+        <span className="text-[10px] text-zinc-500 ml-auto">/day</span>
+      </div>
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={disabled}
+        className="w-full px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest border border-purple-700 bg-purple-950/40 text-purple-200 hover:border-purple-400 hover:bg-purple-900/60 transition-colors disabled:opacity-40"
+      >
+        Save
+      </button>
+      <p className="text-[10px] text-zinc-500 mt-2">
+        {dormant
+          ? "Off — set both this & fine $"
+          : `Active · ${count}/day · $${fineAmount}/miss`}
+      </p>
+    </div>
+  );
+}
+
+function formatHm(totalMin: number): string {
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${String(m).padStart(2, "0")}m`;
 }
 
 function FineScheduleRow({

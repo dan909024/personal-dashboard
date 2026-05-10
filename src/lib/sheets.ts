@@ -2844,6 +2844,20 @@ export async function getEdgeLogsLast30Days(): Promise<EdgeLogRow[]> {
   });
 }
 
+/**
+ * Edge-log rows from the last `days` days (Sydney). Used by the rule-eval
+ * cron's daily `edges` scorer.
+ */
+export async function getRecentEdgeLog(days = 14): Promise<EdgeLogRow[]> {
+  const all = await readEdgeLog();
+  if (all.length === 0) return [];
+  const cutoffMs = Date.now() - days * 86_400_000;
+  return all.filter((r) => {
+    const ms = Date.parse(r.date + "T12:00:00+10:00");
+    return Number.isFinite(ms) && ms >= cutoffMs;
+  });
+}
+
 // ---------- Daily Check-in (upsert on Date) ----------
 
 export type DailyCheckInRow = {
@@ -2974,6 +2988,20 @@ function parseWorshipRows(rows: string[][] | null): WorshipLogRow[] {
 
 async function readWorshipLog(): Promise<WorshipLogRow[]> {
   return parseWorshipRows(await readTab("Worship Log"));
+}
+
+/**
+ * Worship-log rows from the last `days` days (Sydney). Used by the
+ * rule-eval cron's `worship` weekly scorer.
+ */
+export async function getRecentWorshipLog(days = 14): Promise<WorshipLogRow[]> {
+  const all = await readWorshipLog();
+  if (all.length === 0) return [];
+  const cutoffMs = Date.now() - days * 86_400_000;
+  return all.filter((r) => {
+    const ms = Date.parse(r.date + "T12:00:00+10:00");
+    return Number.isFinite(ms) && ms >= cutoffMs;
+  });
 }
 
 export async function appendWorshipLog(input: {

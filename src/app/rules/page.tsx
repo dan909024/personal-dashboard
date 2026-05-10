@@ -197,14 +197,24 @@ export default function RulesPage() {
               <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-zinc-400">
                 <li>wake — $10 / failed day</li>
                 <li>bed — $10 / failed day</li>
+                <li>screentime — $10 / failed day (any bucket over)</li>
+                <li>worship — $0 / failed day (dormant — Harley sets target)</li>
+                <li>edges — $0 / failed day (dormant — Harley sets target)</li>
                 <li>gym — $25 / failed week</li>
                 <li>steps — $20 / failed week</li>
                 <li>water — $20 / failed week</li>
+                <li>writing — $30 / failed week (&lt;8 hr Obsidian)</li>
+                <li>protein — $20 / failed week (&lt;5 days hit target)</li>
               </ul>
               <p className="text-zinc-500 mt-2 text-xs">
                 Daily rules look back 7 days each run (catch-up safe). Weekly
                 rules only evaluate on Sunday night for the just-ending Mon–Sun;
-                activity logged 22:00–23:59 Sun rolls into the next week.
+                activity logged 22:00–23:59 Sun rolls into the next week. Defaults
+                shown above; live amounts overridable from the Harley panel.
+                <br />
+                <strong>worship</strong> and <strong>edges</strong> stay dormant
+                until BOTH the Daily targets slider on the Harley panel AND the
+                Fine schedule amount are set above 0.
               </p>
             </li>
           </ul>

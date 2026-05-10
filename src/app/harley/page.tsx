@@ -23,7 +23,11 @@ import {
   getHarleyMeterDetail,
   type HarleyRuleStatus,
 } from "@/lib/harley-meter";
-import { getFineAmounts } from "@/lib/rule-eval";
+import {
+  EDGES_DAILY_TARGET_KEY,
+  WORSHIP_DAILY_TARGET_MIN_KEY,
+  getFineAmounts,
+} from "@/lib/rule-eval";
 import { DEFAULT_FINE_AMOUNTS } from "@/lib/harley-rules";
 import { isCalendarConfigured } from "@/lib/calendar";
 import { verifyJWT } from "@/lib/jwt";
@@ -60,6 +64,8 @@ export default async function HarleyAdminPage() {
     ruleDetail,
     auditEntries,
     fineAmounts,
+    worshipTargetRaw,
+    edgesTargetRaw,
   ] = await Promise.all([
     readDenialEndDate(),
     getWeaknessSettings(),
@@ -73,6 +79,8 @@ export default async function HarleyAdminPage() {
       : Promise.resolve([] as HarleyRuleStatus[]),
     getRecentGoddessAudit(5),
     configured ? getFineAmounts() : Promise.resolve(DEFAULT_FINE_AMOUNTS),
+    getSetting(WORSHIP_DAILY_TARGET_MIN_KEY),
+    getSetting(EDGES_DAILY_TARGET_KEY),
   ]);
 
   const hardMode =
@@ -81,6 +89,14 @@ export default async function HarleyAdminPage() {
     typeof denialStartedAtRaw === "string" && denialStartedAtRaw.trim()
       ? denialStartedAtRaw.trim()
       : null;
+  const worshipTargetMin = (() => {
+    const n = Number(worshipTargetRaw);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  })();
+  const edgesTarget = (() => {
+    const n = Number(edgesTargetRaw);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  })();
 
   return (
     <HarleyForm
@@ -95,6 +111,8 @@ export default async function HarleyAdminPage() {
       calendarConfigured={isCalendarConfigured()}
       auditEntries={auditEntries}
       fineAmounts={fineAmounts}
+      worshipTargetMin={worshipTargetMin}
+      edgesTarget={edgesTarget}
     />
   );
 }
