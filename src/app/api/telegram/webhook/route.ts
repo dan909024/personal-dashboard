@@ -54,10 +54,15 @@ import {
   DENIAL_END_DATE_TAG,
   appendGoddessAudit,
   appendPunishment,
+  getSetting,
   isConfigured,
   readDenialEndDate,
   setDenialEndDate,
 } from "@/lib/sheets";
+import {
+  DEFAULT_FINE_AMOUNTS,
+  fineAmountSettingKey,
+} from "@/lib/harley-rules";
 import { uploadCoachPhoto } from "@/lib/coach-photo";
 
 export const runtime = "nodejs";
@@ -181,6 +186,9 @@ const INFO_TEXT = `🤖 BOT COMMANDS
 
 /fine <amount> <reason> — adds a fine to Daniel's balance.
   Example: /fine 45 phone over 90min
+
+/drank — Daniel logs a drink. Auto-fines at the
+  drinking-rule amount ($100 default; respects hard-mode 2×).
 
 📷 photo (sent by Harley) — replaces Daniel's coach photo
   on the dashboard.
@@ -354,6 +362,51 @@ export async function POST(req: NextRequest) {
       console.error("[telegram webhook] /add failed:", (e as Error).message);
       if (botToken) {
         await reply(botToken, chatId, "❌ Failed to extend denial. Check server logs.");
+      }
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  if (text === "/drank" || text.startsWith("/drank ") || text.startsWith("/drank@")) {
+    if (!isAuthorizedFineChat(chatId)) {
+      return NextResponse.json({ ok: true });
+    }
+    if (!isConfigured()) {
+      if (botToken) await reply(botToken, chatId, "❌ Sheets not configured.");
+      return NextResponse.json({ ok: true });
+    }
+    try {
+      const amountRaw = await getSetting(fineAmountSettingKey("drinking"));
+      const parsed = Number(amountRaw);
+      const fineAmount =
+        Number.isFinite(parsed) && parsed > 0
+          ? parsed
+          : DEFAULT_FINE_AMOUNTS.drinking;
+      const hardMode =
+        String((await getSetting("hard_mode")) ?? "")
+          .trim()
+          .toLowerCase() === "yes";
+      const finalAmount = hardMode ? fineAmount * 2 : fineAmount;
+      const fromName = message?.from?.first_name || message?.from?.username || "Telegram";
+      await appendPunishment({
+        amount: finalAmount,
+        reason: hardMode ? "Drank alcohol (hard-mode 2×)" : "Drank alcohol",
+        setBy: `${fromName} (Telegram /drank)`,
+        ruleId: "drinking",
+      });
+      revalidatePath("/");
+      revalidatePath("/harley");
+      if (botToken) {
+        await reply(
+          botToken,
+          chatId,
+          `🍷 Logged: drank alcohol — $${finalAmount}${hardMode ? " (hard-mode 2×)" : ""} added to balance.`
+        );
+      }
+    } catch (e) {
+      console.error("[telegram webhook] /drank append failed:", (e as Error).message);
+      if (botToken) {
+        await reply(botToken, chatId, "❌ Failed to log drink. Check server logs.");
       }
     }
     return NextResponse.json({ ok: true });

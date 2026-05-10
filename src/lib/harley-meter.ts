@@ -2,10 +2,10 @@
  * Harley Meter — composite score (0-100) over a rolling 7-day window.
  *
  * Five equally-weighted inputs:
- *   1. Wake by 06:30          (Whoop Daily wake time)
+ *   1. Wake by 06:00          (Whoop Daily wake time)
  *   2. Bed by 22:30           (Whoop Daily sleep onset)
  *   3. Gym 4+ /week           (Whoop Workouts count)
- *   4. 70k steps /week        (Apple Health steps)
+ *   4. 10k steps /day         (Apple Health steps; weekly fine = $10 × days_under_10k)
  *   5. 3.3 L water /day avg   (Apple Health waterMl)
  *
  * Each input contributes 0..1; the meter is the average × 100.
@@ -31,10 +31,11 @@ import {
   dropMacNonBundleIdLabels,
 } from "./screentime-display";
 
-export const WAKE_BY_MIN = 6 * 60 + 30;       // 06:30
+export const WAKE_BY_MIN = 6 * 60;            // 06:00
 export const BED_BY_MIN = 22 * 60 + 30;       // 22:30
 export const GYM_TARGET_PER_WEEK = 4;
 export const STEPS_TARGET_PER_WEEK = 70_000;
+export const STEPS_TARGET_PER_DAY = 10_000;
 export const WATER_TARGET_ML_PER_DAY = 3_300;
 export const WINDOW_DAYS = 7;
 
@@ -306,10 +307,10 @@ export const getHarleyMeterDetail = unstable_cache(
         edgesInput(),
       ]);
     const rows: HarleyRuleStatus[] = [
-      { id: "wake", label: "Wake by 06:30", score: wake, state: bucket(wake) },
+      { id: "wake", label: "Wake by 06:00", score: wake, state: bucket(wake) },
       { id: "bed", label: "Bed by 22:30", score: bed, state: bucket(bed) },
       { id: "gym", label: "Gym 4+/week", score: gym, state: bucket(gym) },
-      { id: "steps", label: "70k steps/week", score: steps, state: bucket(steps) },
+      { id: "steps", label: "10k steps/day", score: steps, state: bucket(steps) },
       { id: "water", label: "3.3 L water/day", score: water, state: bucket(water) },
       {
         id: "writing",

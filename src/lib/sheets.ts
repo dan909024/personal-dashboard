@@ -552,6 +552,79 @@ export const getPunishments = unstable_cache(
   { revalidate: 30 }
 );
 
+export type DrinkingStats = {
+  thisWeekCount: number;
+  daysSinceLastDrink: number | null;
+  lastDrinkDate: string | null;
+  totalCount: number;
+};
+
+/**
+ * Drinking stats for the dashboard tile. Counts every Punishments row
+ * stamped with rule_id="drinking" — both the panel button and the
+ * Telegram /drank command write that rule_id, so the count reflects
+ * every logged drinking event regardless of source.
+ */
+export const getDrinkingStats = unstable_cache(
+  async (): Promise<DrinkingStats> => {
+    const empty: DrinkingStats = {
+      thisWeekCount: 0,
+      daysSinceLastDrink: null,
+      lastDrinkDate: null,
+      totalCount: 0,
+    };
+    if (!isConfigured()) return empty;
+    const rows = await readTab("Punishments");
+    if (!rows || rows.length < 2) return empty;
+
+    const today = todaySydneyISO();
+    // Monday of the current Sydney week.
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Australia/Sydney",
+      weekday: "short",
+    });
+    const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(
+      fmt.format(new Date(today + "T12:00:00Z"))
+    );
+    const back = dow === 0 ? 6 : dow - 1;
+    const weekStart = new Date(Date.parse(today + "T12:00:00Z") - back * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+
+    const dates: string[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      const ruleId = r[5] ? String(r[5]).trim() : "";
+      if (ruleId !== "drinking") continue;
+      const date = normalizeDate(r[0]);
+      if (!date) continue;
+      dates.push(date);
+    }
+    if (dates.length === 0) return empty;
+
+    dates.sort();
+    const lastDrinkDate = dates[dates.length - 1];
+    const thisWeekCount = dates.filter((d) => d >= weekStart && d <= today).length;
+    const daysSinceLastDrink = Math.max(
+      0,
+      Math.round(
+        (Date.parse(today + "T12:00:00Z") -
+          Date.parse(lastDrinkDate + "T12:00:00Z")) /
+          86_400_000
+      )
+    );
+    return {
+      thisWeekCount,
+      daysSinceLastDrink,
+      lastDrinkDate,
+      totalCount: dates.length,
+    };
+  },
+  ["dashboard:drinking-stats"],
+  { revalidate: 30 }
+);
+
 export const getCoachNotes = unstable_cache(
   async (limit = 3): Promise<CoachNote[]> => {
     const rows = await readTab("Coach Notes");

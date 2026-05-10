@@ -14,6 +14,7 @@ import {
   clearAllUnpaidFinesAction,
   clearDenialAction,
   extendDenialAction,
+  logDrinkAction,
   markFinePaidAction,
   messageDanielAction,
   setDenialDateAction,
@@ -187,6 +188,12 @@ export function HarleyForm({
       return;
     }
     onAddFine(n);
+  };
+
+  const onLogDrink = () => {
+    run(`Drank logged · $${fineAmounts.drinking}${hardMode ? " (2×)" : ""}`, () =>
+      logDrinkAction()
+    );
   };
 
   const onMarkPaid = (rowIndex: number, label: string) => {
@@ -588,6 +595,26 @@ export function HarleyForm({
               />
             ))}
           </ul>
+        </div>
+
+        {/* Quick log — manual events that map to specific rules */}
+        <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+            Quick log
+          </p>
+          <p className="text-[11px] text-zinc-500 mb-3 italic">
+            One-tap event logging. Auto-fines at the rule&rsquo;s current $ amount.
+            Daniel can also fire <code className="text-zinc-400">/drank</code> from Telegram.
+          </p>
+          <button
+            type="button"
+            onClick={onLogDrink}
+            disabled={isPending}
+            className="w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border border-rose-700 bg-rose-950/40 text-rose-200 hover:border-rose-400 hover:bg-rose-900/60 transition-colors disabled:opacity-50"
+          >
+            🍷 Daniel drank · ${fineAmounts.drinking}
+            {hardMode && <span className="text-amber-300"> · 2×</span>}
+          </button>
         </div>
 
         {/* Fines */}
