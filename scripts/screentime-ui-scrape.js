@@ -49,7 +49,27 @@ function run() {
   }
 }
 
+function quitSystemSettings() {
+  // Best-effort. We don't care about the result — if the app isn't
+  // running this is a no-op, and if it fails we'd rather continue
+  // than throw out of a finally block.
+  try {
+    APP.doShellScript("osascript -e 'tell application \"System Settings\" to quit' || true");
+  } catch (e) { /* ignore */ }
+}
+
 function main() {
+  try {
+    return mainBody();
+  } finally {
+    // Quit on every exit path — success, early-return failure, or
+    // uncaught exception. Without this, a scrape that bails before
+    // reaching the success-path cleanup leaves Settings on screen.
+    quitSystemSettings();
+  }
+}
+
+function mainBody() {
   // Foreground scrape — the constraints we proved empirically and
   // the trade-offs they force:
   //
@@ -72,10 +92,11 @@ function main() {
   // Net: window stays on the active Space, fully visible, throughout
   // the 3-5 min scrape. The idle gate in the TS driver
   // (~/.screentime-scraper/state + ioreg HID idle) ensures the user
-  // isn't at the keyboard when this happens. We quit Settings at
-  // the end so no stray window remains. The dashboard refresh
-  // button bypasses the idle gate when the user explicitly wants a
-  // fresh row now (and has chosen to step away).
+  // isn't at the keyboard when this happens. The wrapping main()
+  // try/finally guarantees Settings is quit regardless of how this
+  // body exits. The dashboard refresh button bypasses the idle gate
+  // when the user explicitly wants a fresh row now (and has chosen
+  // to step away).
   APP.doShellScript("osascript -e 'tell application \"System Settings\" to quit' || true");
   // Longer post-quit settle: a previous failed run may have left the
   // app in a half-quitting state. The "Can't get object" intermittent
@@ -206,11 +227,8 @@ function main() {
 
   merged.rows = Array.from(seen.values());
 
-  // Clean up: quit System Settings so the user doesn't see a stray
-  // window (off-screen or otherwise) when they come back. Best-effort.
-  try {
-    APP.doShellScript("osascript -e 'tell application \"System Settings\" to quit' || true");
-  } catch (e) { /* ignore */ }
+  // (Settings is quit by main()'s finally block — covers every exit
+  // path, not just this success branch.)
 
   if (!merged.device) {
     return { ok: false, error: "scrape produced no device — view did not settle", stage: "scrape" };

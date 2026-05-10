@@ -18,7 +18,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { runWhoopSync } from "@/lib/whoop-sync";
-import { appendSyncTrigger, getMostRecentSyncTriggerForIp } from "@/lib/sheets";
+import {
+  appendSyncTrigger,
+  getMostRecentSyncTriggerForIp,
+  isConfigured,
+  setScreentimeForceTriggerNow,
+} from "@/lib/sheets";
 import { sendDanTelegram, formatSyncManualAsksMessage } from "@/lib/telegram";
 
 export const runtime = "nodejs";
@@ -26,15 +31,20 @@ export const dynamic = "force-dynamic";
 
 const RATE_LIMIT_MS = 60 * 1000;
 
+// Screen Time used to live here as a manual ask. It now auto-fires
+// via setScreentimeForceTriggerNow() — the Mac UI scraper polls the
+// trigger mailbox every ~2 minutes and bypasses its idle/cooldown
+// gates when the timestamp is fresh.
 const MANUAL_ASKS = [
   "Apple Health iOS Shortcut — tap play",
-  "Screen Time Mac launchd — auto every 4h, force with: launchctl kickstart -k gui/$(id -u)/com.danielferrari.screentime-sync",
 ] as const;
 
 type SyncResponse = {
   ok: boolean;
   whoop: "ok" | "error" | "not_connected" | "not_configured";
   whoopDetail?: string;
+  screentime: "queued" | "error" | "not_configured";
+  screentimeDetail?: string;
   manualAsks: string[];
   syncedAt: string;
 };
@@ -98,6 +108,26 @@ export async function POST(
     console.error("[dashboard/sync] whoop sync threw:", whoopDetail);
   }
 
+  // Screen Time auto-trigger — write the force-trigger timestamp
+  // to the Sheet mailbox. The Mac launchd UI scraper polls it on
+  // its 2-minute tick and bypasses its idle/cooldown gates when
+  // the timestamp is fresh.
+  let screentime: SyncResponse["screentime"] = "queued";
+  let screentimeDetail: string | undefined;
+  if (!isConfigured()) {
+    screentime = "not_configured";
+    screentimeDetail = "Sheets env missing on server";
+  } else {
+    try {
+      const ts = await setScreentimeForceTriggerNow();
+      screentimeDetail = `Mac picks up in ≤2 min (${ts})`;
+    } catch (e) {
+      screentime = "error";
+      screentimeDetail = (e as Error).message.slice(0, 200);
+      console.error("[dashboard/sync] screentime trigger threw:", screentimeDetail);
+    }
+  }
+
   const manualAsks = [...MANUAL_ASKS];
 
   // Audit row — never throws.
@@ -129,9 +159,11 @@ export async function POST(
   revalidatePath("/");
 
   return NextResponse.json({
-    ok: whoop === "ok",
+    ok: whoop === "ok" && screentime !== "error",
     whoop,
     whoopDetail,
+    screentime,
+    screentimeDetail,
     manualAsks,
     syncedAt: new Date().toISOString(),
   });
