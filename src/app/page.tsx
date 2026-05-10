@@ -300,14 +300,13 @@ export default async function Dashboard({
     : allowed
     ? "url('/backgrounds/allowed.jpg')"
     : "url('/backgrounds/denied.jpg')";
-  // Brand overlays — rose-bloom when allowed, deep cobalt when denied,
-  // warm bloom on first-run setup. Lower opacity than before so Harley
-  // shows through; vignette below restores tile contrast.
+  // Brand overlays — softer than before so the coach photo bleeds through
+  // and gives the page real depth instead of feeling like a flat colour wash.
   const overlayClass = !configured
-    ? "bg-bloom-900/30"
+    ? "bg-bloom-900/20"
     : allowed
-    ? "bg-bloom-800/30"
-    : "bg-coach-900/45";
+    ? "bg-bloom-800/20"
+    : "bg-coach-900/30";
 
   return (
     <div
@@ -322,9 +321,11 @@ export default async function Dashboard({
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(ellipse at center, transparent 0%, transparent 35%, rgba(13,33,72,0.6) 100%)",
+            "radial-gradient(ellipse at center, transparent 0%, transparent 30%, rgba(13,33,72,0.55) 100%)",
         }}
       />
+      {/* Film grain — tactile paper-like texture so flat areas have weight. */}
+      <div className="grain" />
 
       <div className="relative z-10">
         {/* Setup banner if env not configured */}
@@ -487,7 +488,7 @@ export default async function Dashboard({
 
           <Link
             href="/screentime"
-            className="block border border-iron-100/70 bg-iron-700/80 backdrop-blur-sm p-4 hover:border-coach-600/70 transition-colors"
+            className="tile-card block p-5"
           >
             <p className="brand-serif text-[11px] font-semibold tracking-[0.22em] text-ivory-300/80 uppercase mb-3 flex items-center justify-between">
               Screentime
@@ -499,7 +500,7 @@ export default async function Dashboard({
           {/* Row 3 */}
           <Link
             href="/transactions"
-            className="block border border-iron-100/70 bg-iron-700/80 backdrop-blur-sm p-4 hover:border-coach-600/70 transition-colors"
+            className="tile-card block p-5"
           >
             <p className="brand-serif text-[11px] font-semibold tracking-[0.22em] text-ivory-300/80 uppercase mb-3 flex items-center justify-between">
               Transactions
@@ -515,7 +516,12 @@ export default async function Dashboard({
               <NoData />
             ) : (
               <>
-                <p className="text-3xl font-bold text-bloom-300 mb-2">$135</p>
+                <p
+                  className="brand-serif text-5xl font-semibold text-bloom-300 mb-3 tracking-tight leading-none"
+                  style={{ textShadow: "0 0 32px rgba(217, 117, 143, 0.4)" }}
+                >
+                  $135
+                </p>
                 <p className="text-[10px] text-ivory-400/70 uppercase tracking-widest mb-2">
                   $1,135 fines − $1,000 paid
                 </p>
@@ -542,15 +548,21 @@ export default async function Dashboard({
               const value = configured ? harley : 78;
               return (
                 <>
-                  <p className="brand-serif text-5xl font-semibold text-ivory mb-2 tracking-tight">{value}%</p>
-                  <div className="w-full bg-iron-200 h-2 mb-2">
+                  <p
+                    className="brand-serif text-6xl font-semibold text-ivory mb-3 tracking-tight leading-none"
+                    style={{ textShadow: "0 0 32px rgba(111, 155, 120, 0.35)" }}
+                  >
+                    {value}
+                    <span className="text-3xl text-ivory-400/70 font-normal align-top ml-1">%</span>
+                  </p>
+                  <div className="w-full bg-iron-200/80 h-1.5 mb-2 rounded-full overflow-hidden">
                     <div
-                      className="bg-sage h-2 transition-all"
+                      className="bg-gradient-to-r from-sage-700 via-sage to-sage-300 h-full rounded-full transition-all duration-500"
                       style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
                     />
                   </div>
-                  <p className="text-xs text-ivory-400/70 uppercase tracking-wider">
-                    {configured ? "wake / bed / gym / steps / water / tasks" : "14 of 18 tasks this week"}
+                  <p className="text-[10px] text-ivory-400/70 uppercase tracking-[0.18em]">
+                    {configured ? "wake · bed · gym · steps · water · tasks" : "14 of 18 tasks this week"}
                   </p>
                 </>
               );
@@ -565,6 +577,8 @@ export default async function Dashboard({
             <DrinkingTile data={drinking} configured={configured} />
           </Tile>
         </div>
+
+        <SectionRule label="From Harley" />
 
         {/* Harley calendar — events Harley adds to the shared `weekly` calendar */}
         <div className="px-4 pb-4">
@@ -585,9 +599,11 @@ export default async function Dashboard({
           <GoddessFeetPanel />
         </div>
 
+        <SectionRule label="Receipts" />
+
         {/* Proof Drops embed */}
         <div className="px-4 pb-4">
-          <div className="border border-iron-100/70 bg-iron-700/80 backdrop-blur-sm p-4">
+          <div className="tile-card p-5">
             <p className="brand-serif text-[11px] font-semibold tracking-[0.22em] text-ivory-300/80 uppercase mb-3">
               Proof Drops
             </p>
@@ -667,7 +683,7 @@ function fmtSleep(sleep: string): string {
 
 function Tile({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="border border-iron-100/70 bg-iron-700/80 backdrop-blur-sm p-4 shadow-[0_1px_0_rgba(243,231,204,0.04)_inset]">
+    <div className="tile-card p-5">
       <p className="brand-serif text-[11px] font-semibold tracking-[0.22em] text-ivory-300/80 uppercase mb-3">
         {title}
       </p>
@@ -690,10 +706,21 @@ function ConnectWhoopCta() {
 function HarleyBalanceTile({ balance }: { balance: HarleyBalance }) {
   const owed = balance.owed;
   const owedColor = owed > 0 ? "text-bloom-300" : owed < 0 ? "text-sage-300" : "text-ivory";
+  const glow =
+    owed > 0
+      ? "0 0 32px rgba(217, 117, 143, 0.4)"
+      : owed < 0
+      ? "0 0 32px rgba(111, 155, 120, 0.35)"
+      : "0 0 32px rgba(243, 231, 204, 0.2)";
   const owedLabel = owed < 0 ? `Overpaid $${Math.abs(owed).toLocaleString("en-AU")}` : `$${owed.toLocaleString("en-AU")}`;
   return (
     <>
-      <p className={`text-3xl font-bold mb-2 ${owedColor}`}>{owedLabel}</p>
+      <p
+        className={`brand-serif text-5xl font-semibold mb-3 tracking-tight leading-none ${owedColor}`}
+        style={{ textShadow: glow }}
+      >
+        {owedLabel}
+      </p>
       <p className="text-[10px] text-ivory-400/70 uppercase tracking-widest mb-2">
         ${balance.finesTotal.toLocaleString("en-AU")} fines − $
         {balance.paidTotal.toLocaleString("en-AU")} paid
@@ -756,6 +783,22 @@ function buildActivityTooltip(a: HarleyActivity): string {
 
 function NoData() {
   return <p className="text-xs text-ivory-400/60 italic">no data yet</p>;
+}
+
+/** Decorative section divider — hairline ivory rule with a small
+ *  rose petal in the middle. Use between major page sections. */
+function SectionRule({ label }: { label?: string }) {
+  return (
+    <div className="section-rule px-4 py-3">
+      <span className="section-rule__petal" aria-hidden="true" />
+      {label && (
+        <span className="brand-serif text-[10px] tracking-[0.3em] uppercase text-ivory-300/60">
+          {label}
+        </span>
+      )}
+      <span className="section-rule__petal" aria-hidden="true" />
+    </div>
+  );
 }
 
 function fmtMoney(n: number): string {
@@ -842,7 +885,12 @@ function WorshipTotalsTile({
   if (!configured) {
     return (
       <>
-        <p className="brand-serif text-3xl font-semibold text-bloom-300 mb-2">$2,800</p>
+        <p
+          className="brand-serif text-5xl font-semibold text-bloom-300 mb-3 tracking-tight leading-none"
+          style={{ textShadow: "0 0 32px rgba(217, 117, 143, 0.4)" }}
+        >
+          $2,800
+        </p>
         <p className="text-xs text-ivory-400/70 uppercase tracking-wider mb-1">
           Lifetime given
         </p>
@@ -853,7 +901,10 @@ function WorshipTotalsTile({
   if (!totals) return <NoData />;
   return (
     <>
-      <p className="brand-serif text-3xl font-semibold text-bloom-300 mb-2">
+      <p
+        className="brand-serif text-5xl font-semibold text-bloom-300 mb-3 tracking-tight leading-none"
+        style={{ textShadow: "0 0 32px rgba(217, 117, 143, 0.4)" }}
+      >
         {fmtMoney(totals.moneyGivenUsd)}
       </p>
       <p className="text-[10px] text-ivory-400/70 uppercase tracking-widest mb-2">
@@ -1242,7 +1293,7 @@ function BottomLink({ label, href }: { label: string; href: string }) {
     <a
       href={href}
       {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-      className="px-4 py-2 border border-iron-100 bg-iron-700/40 text-xs text-ivory-300/80 uppercase tracking-[0.22em] hover:border-coach-500 hover:text-ivory hover:bg-coach-900/40 transition-colors"
+      className="px-5 py-2.5 border border-iron-100/70 bg-iron-700/50 backdrop-blur-sm text-xs text-ivory-300/80 uppercase tracking-[0.22em] hover:border-coach-500 hover:text-ivory hover:bg-coach-900/40 hover:-translate-y-px transition-all shadow-[inset_0_1px_0_rgba(243,231,204,0.05),0_4px_12px_-4px_rgba(0,0,0,0.4)]"
     >
       {label}
     </a>
@@ -1322,10 +1373,10 @@ function TamperLog({
 
   // Container colour shifts: clean = subtle iron, tampered = bloom-tinted alarm.
   const containerClass = !configured
-    ? "border border-iron-100/70 bg-iron-700/80 backdrop-blur-sm p-4"
+    ? "tile-card p-5"
     : tampered
-    ? "border border-bloom-700 bg-bloom-900/30 backdrop-blur-sm p-4"
-    : "border border-sage-700/60 bg-iron-700/80 backdrop-blur-sm p-4";
+    ? "tile-card p-5 border-bloom-700/80 [background:linear-gradient(180deg,rgba(217,117,143,0.10)_0%,transparent_30%),linear-gradient(180deg,rgba(40,18,28,0.88)_0%,rgba(28,12,18,0.94)_100%)]"
+    : "tile-card p-5";
 
   const titleColor = tampered ? "text-bloom-300" : "text-ivory-300/80";
 

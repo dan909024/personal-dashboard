@@ -115,7 +115,7 @@ export function WeaknessAltarTile({
   const spiral = data.todayBrutalMultiplier >= 3.5;
 
   return (
-    <div className="border border-bloom-700/50 bg-iron-700/85 backdrop-blur-sm p-4 col-span-1 md:col-span-3 shadow-[0_0_40px_-20px_rgba(217,117,143,0.4)]">
+    <div className="tile-card-bloom p-5 col-span-1 md:col-span-3 rounded-none">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0">

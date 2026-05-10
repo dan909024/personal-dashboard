@@ -132,10 +132,11 @@ export function HarleyCalendarTile({ past, future, configured }: Props) {
 
   return (
     <div
-      className="border bg-iron-700/85 backdrop-blur-sm p-5 rounded"
+      className="tile-card p-5 rounded"
       style={{
         borderColor: "var(--color-coach-700)",
-        boxShadow: "0 0 32px -14px var(--color-coach)",
+        boxShadow:
+          "inset 0 1px 0 0 rgba(243,231,204,0.06), 0 1px 2px rgba(0,0,0,0.4), 0 12px 32px -8px rgba(0,0,0,0.55), 0 24px 64px -16px rgba(31,95,199,0.22)",
       }}
     >
       {/* Header */}

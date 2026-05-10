@@ -80,3 +80,93 @@ body {
     radial-gradient(circle at 80% 100%, rgba(217, 117, 143, 0.08), transparent 50%),
     var(--color-ink);
 }
+
+/* ── Depth helpers ─────────────────────────────────────────────
+   These give tiles real card weight: layered drop shadow, a
+   one-pixel inner highlight at the top edge for a "rim of light",
+   and a subtle vertical gradient so the surface isn't flat. */
+
+.tile-card {
+  background:
+    linear-gradient(180deg, rgba(243, 231, 204, 0.04) 0%, transparent 30%),
+    linear-gradient(180deg, rgba(14, 16, 20, 0.85) 0%, rgba(10, 13, 18, 0.92) 100%);
+  border: 1px solid color-mix(in oklab, var(--color-iron-100) 70%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 rgba(243, 231, 204, 0.06),
+    inset 0 0 0 1px rgba(243, 231, 204, 0.015),
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 8px 24px -8px rgba(0, 0, 0, 0.55),
+    0 24px 48px -24px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.tile-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--color-coach-600) 60%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 rgba(243, 231, 204, 0.08),
+    0 2px 4px rgba(0, 0, 0, 0.45),
+    0 12px 32px -8px rgba(0, 0, 0, 0.6),
+    0 32px 64px -24px rgba(31, 95, 199, 0.25);
+}
+
+/* Bloom-glowing variant for the Goddess altar — a warm rose halo
+   so it reads as the emotional centerpiece. */
+.tile-card-bloom {
+  background:
+    linear-gradient(180deg, rgba(217, 117, 143, 0.06) 0%, transparent 40%),
+    linear-gradient(180deg, rgba(28, 18, 28, 0.88) 0%, rgba(18, 12, 22, 0.94) 100%);
+  border: 1px solid color-mix(in oklab, var(--color-bloom-700) 60%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 rgba(243, 231, 204, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 12px 32px -8px rgba(0, 0, 0, 0.55),
+    0 24px 64px -16px rgba(217, 117, 143, 0.2);
+  backdrop-filter: blur(10px) saturate(150%);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+}
+
+/* Decorative section divider — hairline ivory rule with a small
+   rose-petal motif in the middle. Use between major sections. */
+.section-rule {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: color-mix(in oklab, var(--color-ivory) 30%, transparent);
+}
+
+.section-rule::before,
+.section-rule::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-ivory) 25%, transparent),
+    transparent
+  );
+}
+
+.section-rule__petal {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-bloom-300);
+  box-shadow:
+    0 0 0 3px rgba(217, 117, 143, 0.15),
+    0 0 12px 2px rgba(217, 117, 143, 0.4);
+}
+
+/* Subtle film grain — adds tactile paper-like depth. SVG noise so
+   it scales without rasterizing. Apply via .grain on a fixed overlay. */
+.grain {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
