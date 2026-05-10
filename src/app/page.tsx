@@ -1,5 +1,4 @@
 import {
-  getOpenTasks,
   getHarleyBalance,
   getWorshipTotals,
   getLatestWhoopDaily,
@@ -233,7 +232,6 @@ export default async function Dashboard({
 
   // Fetch in parallel; each function is internally cached.
   const [
-    openTasks,
     harleyBalance,
     whoop,
     harley,
@@ -251,7 +249,6 @@ export default async function Dashboard({
     drinking,
     videoStore,
   ] = await Promise.all([
-    configured ? getOpenTasks(3) : Promise.resolve([]),
     configured ? getHarleyBalance() : Promise.resolve(null as HarleyBalance | null),
     configured ? getLatestWhoopDaily() : Promise.resolve(null),
     configured ? getHarleyMeter() : Promise.resolve(0),
@@ -301,11 +298,12 @@ export default async function Dashboard({
   // Background swap based on Settings.orgasm_allowed. Falls back to coach.jpg
   // when the Sheet isn't configured yet so first-time setup still has a visual.
   const allowed = weakness?.orgasmAllowed === "yes";
-  const backgroundImage = !configured
-    ? "url('/coach.jpg')"
+  const backgroundSrc = !configured
+    ? "/coach.jpg"
     : allowed
-    ? "url('/backgrounds/allowed.jpg')"
-    : "url('/backgrounds/denied.jpg')";
+    ? "/backgrounds/allowed.jpg"
+    : "/backgrounds/denied.jpg";
+  const backgroundImage = `url('${backgroundSrc}')`;
   // Brand overlays — rose-bloom when allowed, deep cobalt when denied,
   // warm bloom on first-run setup. Lower opacity than before so Harley
   // shows through; vignette below restores tile contrast.
@@ -392,24 +390,6 @@ export default async function Dashboard({
                 Updated {lastUpdated}
               </p>
             </div>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-4">
-            {(configured && openTasks.length > 0
-              ? openTasks.map((t) => t.task)
-              : ["30 min cardio", "Hit protein", "Submit proof"]
-            ).map((label, i) => (
-              <label
-                key={`${i}-${label}`}
-                className="flex items-center gap-2 text-sm text-ivory-100/80 cursor-pointer hover:text-ivory transition-colors"
-              >
-                <input
-                  type="checkbox"
-                  className="w-4 h-4"
-                  style={{ accentColor: "var(--color-sage)" }}
-                />
-                {label}
-              </label>
-            ))}
           </div>
         </div>
 
@@ -590,7 +570,7 @@ export default async function Dashboard({
 
         {/* Peek at Goddess' feet — curtain that splits open to reveal the page background photo */}
         <div className="px-4 pb-4">
-          <GoddessFeetPanel />
+          <GoddessFeetPanel imageSrc={backgroundSrc} />
         </div>
 
         {/* Proof Drops embed */}
