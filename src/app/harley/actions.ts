@@ -23,6 +23,10 @@ import {
   fineAmountSettingKey,
   type HarleyRuleId,
 } from "@/lib/harley-rules";
+import {
+  EDGES_DAILY_TARGET_KEY,
+  WORSHIP_DAILY_TARGET_MIN_KEY,
+} from "@/lib/rule-eval";
 import { verifyJWT } from "@/lib/jwt";
 import { sendDanTelegram } from "@/lib/telegram";
 
@@ -275,6 +279,49 @@ export async function clearAllUnpaidFinesAction(): Promise<
     await appendGoddessAudit("reset-balance", `${cleared} row(s)`);
     revalidateAll();
     return { ok: true, cleared };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function setWorshipTargetAction(
+  minutes: number
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    return { ok: false, error: "minutes must be ≥ 0" };
+  }
+  // 24 hr cap — anything higher is a fat-finger.
+  if (minutes > 24 * 60) {
+    return { ok: false, error: "minutes too large" };
+  }
+  const rounded = Math.round(minutes);
+  try {
+    await setSetting(WORSHIP_DAILY_TARGET_MIN_KEY, rounded, "harley-admin");
+    await appendGoddessAudit("set-worship-target", `${rounded} min/day`);
+    revalidateAll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function setEdgesTargetAction(
+  count: number
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  if (!Number.isFinite(count) || count < 0) {
+    return { ok: false, error: "count must be ≥ 0" };
+  }
+  if (count > 100) {
+    return { ok: false, error: "count too large" };
+  }
+  const rounded = Math.round(count);
+  try {
+    await setSetting(EDGES_DAILY_TARGET_KEY, rounded, "harley-admin");
+    await appendGoddessAudit("set-edges-target", `${rounded}/day`);
+    revalidateAll();
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
