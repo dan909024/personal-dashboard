@@ -8,6 +8,9 @@
  * Daily rules (one fine per failed day):
  *   wake       — Whoop wake time > 06:30 Sydney
  *   bed        — Whoop sleep onset > 22:30 Sydney (00:00–05:59 = next day)
+ *   strain     — Whoop daily strain < 12 on a "training day" (any Whoop
+ *                workout ≥30 min on that calendar day). Untrained days are
+ *                untouched — that's the gym rule's territory.
  *   screentime — any Screen Time bucket exceeded its target
  *   worship    — Worship Log minutes for the day < worship_daily_target_min
  *   edges      — Edge Log count for the day < edges_daily_target
@@ -37,6 +40,7 @@ import {
   getRecentWhoopDaily,
   getRecentWorshipLog,
   countWhoopWorkoutsInRange,
+  getWhoopWorkoutsInRange,
   getSetting,
   isConfigured,
   todaySydneyISO,
@@ -56,6 +60,8 @@ import {
   SCREENTIME_BUCKETS,
   PROTEIN_DAYS_TARGET,
   PROTEIN_DEFAULT_TARGET_G,
+  STRAIN_TARGET_TRAINING_DAY,
+  TRAINING_DAY_MIN_DURATION_MIN,
 } from "./harley-meter";
 import {
   displayAppName,
@@ -215,6 +221,36 @@ async function buildBedCandidates(today: string, amount: number): Promise<RuleEv
       periodStart: date,
       amount,
       reason: `Late bed (${score.detail}) — ${date}`,
+      setBy: "auto",
+    });
+  }
+  return candidates;
+}
+
+async function buildStrainCandidates(today: string, amount: number): Promise<RuleEvalCandidate[]> {
+  const start = addDaysISO(today, -DAILY_LOOKBACK);
+  const [dailies, workouts] = await Promise.all([
+    getRecentWhoopDaily(DAILY_LOOKBACK + 1),
+    getWhoopWorkoutsInRange(start, today),
+  ]);
+  const dailyByDate = new Map(dailies.map((r) => [r.date, r]));
+  const trainingDays = new Set<string>();
+  for (const w of workouts) {
+    if (w.durationMin >= TRAINING_DAY_MIN_DURATION_MIN) trainingDays.add(w.date);
+  }
+  const candidates: RuleEvalCandidate[] = [];
+  for (const date of dailyDates(today)) {
+    if (!trainingDays.has(date)) continue;
+    const daily = dailyByDate.get(date);
+    if (!daily) continue;
+    const strain = Number(daily.strain);
+    if (!Number.isFinite(strain)) continue;
+    if (strain >= STRAIN_TARGET_TRAINING_DAY) continue;
+    candidates.push({
+      ruleId: "strain",
+      periodStart: date,
+      amount,
+      reason: `Low strain on training day (${strain.toFixed(1)} < ${STRAIN_TARGET_TRAINING_DAY}) — ${date}`,
       setBy: "auto",
     });
   }
@@ -448,6 +484,7 @@ export async function evaluateRulesAndFine(
   // worship/edges short-circuit when amount or target is 0 (rule disabled).
   candidates.push(...(await buildWakeCandidates(today, amounts.wake)));
   candidates.push(...(await buildBedCandidates(today, amounts.bed)));
+  candidates.push(...(await buildStrainCandidates(today, amounts.strain)));
   candidates.push(...(await buildScreentimeCandidates(today, amounts.screentime)));
   if (amounts.worship > 0) {
     candidates.push(...(await buildWorshipCandidates(today, amounts.worship)));
