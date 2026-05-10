@@ -2,7 +2,7 @@
  * Phase 5B — Goddess's Weakening Altar
  *
  * Pure compute: phase progression, weakness score, brutal-day bonus,
- * calorie detraction, worship/self-help adjustments, 30-day series.
+ * calorie detraction, worship/self-help adjustments, 7-day series.
  * Read sheet rows + settings from src/lib/sheets.ts and pass them in;
  * nothing here touches the network. Tunable from the Settings tab
  * without touching the tile.
@@ -324,7 +324,14 @@ export function computeWeaknessScore(args: {
   return Math.round(score);
 }
 
-// ---------- 30-day series for the chart ----------
+// ---------- 7-day series for the chart ----------
+
+/**
+ * Number of days the chart shows. 7 keeps each daily column visible on
+ * the X-axis (no every-Nth-label thinning) and matches the user's mental
+ * model — review weeks, not months.
+ */
+const CHART_WINDOW_DAYS = 7;
 
 export type WeaknessSeriesPoint = {
   date: string;
@@ -343,11 +350,11 @@ export type WeaknessSeriesPoint = {
 };
 
 /**
- * Build a 30-day weakness curve. We iterate cycle-from-start ONCE up to
+ * Build a 7-day weakness curve. We iterate cycle-from-start ONCE up to
  * `today` and capture the cumulative score at each step. Days before the
  * cycle start get score 0.
  */
-export function build30DaySeries(args: {
+export function buildWeeklySeries(args: {
   orgasms: OrgasmLogRow[];
   edges: EdgeLogRow[];
   checkIns: DailyCheckInRow[];
@@ -404,7 +411,7 @@ export function build30DaySeries(args: {
       });
     }
   }
-  for (let i = 29; i >= 0; i--) {
+  for (let i = CHART_WINDOW_DAYS - 1; i >= 0; i--) {
     const date = addDays(today, -i);
     const entry = scoreByDate.get(date);
     if (entry) {
@@ -461,7 +468,7 @@ export type WeaknessDashboardData = {
   todayActiveCalories: number;
   todayCalorieDetraction: number;
   currentPhase: PhaseInfo;
-  thirtyDaySeries: WeaknessSeriesPoint[];
+  weeklySeries: WeaknessSeriesPoint[];
   orgasmAllowed: "yes" | "no";
   mostRecentOrgasm: { date: string; type: "allowed" | "lapsed" } | null;
   hasArousalCheckInToday: boolean;
@@ -542,7 +549,7 @@ export async function getDashboardWeakness(): Promise<WeaknessDashboardData> {
     settings
   );
   const phase = determinePhase(score, settings);
-  const series = build30DaySeries({
+  const series = buildWeeklySeries({
     orgasms,
     edges,
     checkIns,
@@ -578,7 +585,7 @@ export async function getDashboardWeakness(): Promise<WeaknessDashboardData> {
     todayActiveCalories: daily.activeCalories,
     todayCalorieDetraction: Math.round(daily.calorieDetraction),
     currentPhase: phase,
-    thirtyDaySeries: series,
+    weeklySeries: series,
     orgasmAllowed: settings.orgasm_allowed,
     mostRecentOrgasm: mostRecentOrgasm
       ? { date: mostRecentOrgasm.date, type: mostRecentOrgasm.type }
@@ -613,7 +620,7 @@ function emptyDashboard(_today: string): WeaknessDashboardData {
       nextPhaseThreshold: null,
       percentToNext: 0,
     },
-    thirtyDaySeries: [],
+    weeklySeries: [],
     orgasmAllowed: "no",
     mostRecentOrgasm: null,
     hasArousalCheckInToday: false,

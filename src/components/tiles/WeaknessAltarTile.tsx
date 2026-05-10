@@ -283,7 +283,7 @@ export function WeaknessAltarTile({
         <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase mb-2">
           Weakness progression for Goddess
         </p>
-        <WeaknessChart data={data.thirtyDaySeries} />
+        <WeaknessChart data={data.weeklySeries} />
       </div>
 
       {/* Toast */}
