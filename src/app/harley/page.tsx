@@ -64,7 +64,7 @@ export default async function HarleyAdminPage() {
     readDenialEndDate(),
     getWeaknessSettings(),
     getHarleyBalance(),
-    getRecentUnpaidPunishments(10),
+    getRecentUnpaidPunishments(500),
     getSetting("hard_mode"),
     getSetting("denial_started_at"),
     configured ? getHarleyMeter() : Promise.resolve(0),
