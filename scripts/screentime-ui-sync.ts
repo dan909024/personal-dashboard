@@ -167,6 +167,55 @@ function parseTimeToMinutes(s: string): number {
   return hours * 60 + minutes + Math.round(seconds / 60);
 }
 
+// Privacy redaction — keep this dashboard work-presentable.
+//
+// We drop two row classes before they ever reach the Sheet:
+//
+//   1. **Personal identifiers / employer terms.** Daniel uses this Mac
+//      for work; his name, employer, and work-product names must
+//      never appear in the dashboard / Sheet / commits / logs.
+//      Match is case-insensitive on whole words.
+//
+//   2. **Website domains** (Safari activity rows, e.g.
+//      "loyalfans.com", "gooz.aapmains.net"). The dashboard is
+//      "apps only" — browsing history is intentionally excluded
+//      so screen-shares at work don't reveal personal sites.
+//      Detection: row label looks like a hostname (contains a dot
+//      AND ends with a TLD-like suffix that isn't a bundle id —
+//      bundle ids start with "com." / "org." / etc. and have many
+//      dots; site domains usually end with a known TLD).
+//
+// See memory file: feedback_personal_identifier_redaction.md
+// Match the personal name with an optional possessive 's so the
+// stripper handles "Daniel's iPhone" → "iPhone" cleanly. Use a
+// global flag for the stripper but a non-global flag for `.test()`
+// (test() with /g has stateful exec semantics — bug magnet).
+const PERSONAL_REDACT_REGEX =
+  /\b(avid|pubsuite|daniel|ferrari)(['’]s)?\b/i;
+const PERSONAL_REDACT_REGEX_GLOBAL =
+  /\b(avid|pubsuite|daniel|ferrari)(['’]s)?\b/gi;
+
+const WEBSITE_TLD_REGEX =
+  /\.(com|net|org|io|app|co|me|tv|au|uk|us|ca|fm|gg|to|nz|info|biz|news)$/i;
+
+function redactionReason(label: string): string | null {
+  if (PERSONAL_REDACT_REGEX.test(label)) return "personal_identifier";
+  if (looksLikeDomain(label)) return "website_domain";
+  return null;
+}
+
+function looksLikeDomain(label: string): boolean {
+  // Bundle ids ("com.apple.Safari") have a leading "com." or similar
+  // reverse-DNS style, plus typically many dots. Site domains have
+  // a single name + TLD ("loyalfans.com") or up to 3 segments
+  // ("gooz.aapmains.net"). Heuristic: contains no spaces, has a
+  // TLD-like suffix, and DOESN'T start with "com." / "org." / etc.
+  if (/\s/.test(label)) return false;
+  if (!WEBSITE_TLD_REGEX.test(label)) return false;
+  if (/^(com|org|net|io|co|app|me|gov|edu)\./i.test(label)) return false;
+  return true;
+}
+
 function todayInTZ(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: TZ,
@@ -361,18 +410,46 @@ async function main() {
     process.exit(3);
   }
 
+  // Redact personal terms from the device label for the log
+  // (e.g. "Daniel's iPhone" → "iPhone") so /tmp/screentime-ui-sync.log
+  // doesn't carry his name across the disk.
+  const deviceForLog = result.device
+    .replace(PERSONAL_REDACT_REGEX_GLOBAL, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
   console.log(
-    `[screentime-ui-sync] scraped device="${result.device}" date="${result.date}" picker="${result.picker}" total="${result.total}" rows=${result.rows.length}`
+    `[screentime-ui-sync] scraped device="${deviceForLog}" date="${result.date}" picker="${result.picker}" total="${result.total}" rows=${result.rows.length}`
   );
 
   const date = todayInTZ();
-  const items = result.rows
+  const allItems = result.rows
     .map((r) => ({
       label: r.name.trim().slice(0, 200),
       category: "",
       minutes: parseTimeToMinutes(r.time),
     }))
     .filter((it) => it.label && it.minutes > 0);
+
+  // Privacy filter (see memory: feedback_personal_identifier_redaction).
+  // Drop rows that would leak personal identifiers or reveal browsing
+  // history. Apps-only on the dashboard.
+  const items: typeof allItems = [];
+  const dropped: { label: string; reason: string }[] = [];
+  for (const it of allItems) {
+    const reason = redactionReason(it.label);
+    if (reason) {
+      dropped.push({ label: it.label, reason });
+      continue;
+    }
+    items.push(it);
+  }
+  if (dropped.length) {
+    console.log(
+      `[screentime-ui-sync] redacted ${dropped.length} row(s): ${dropped
+        .map((d) => `${d.label.slice(0, 30)} (${d.reason})`)
+        .join(", ")}`
+    );
+  }
 
   if (items.length === 0) {
     console.log("[screentime-ui-sync] no rows with parseable time — nothing to post");

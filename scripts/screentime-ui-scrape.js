@@ -121,7 +121,7 @@ function main() {
   let initialTotal = "";
   try { initialDevice = readPopupValue(proc, isDevicePopup) || "?"; } catch (e) {}
   try { initialTotal = readUsageTotal(proc) || ""; } catch (e) {}
-  console.log(`[scrape] initial device=${initialDevice} total=${initialTotal}`);
+  console.log(`[scrape] initial device=${redactPersonal(initialDevice)} total=${initialTotal}`);
 
   // Step 2: switch the Device popup to iPhone. (After "Share Across
   // Devices" is enabled, the menu offers per-device entries.)
@@ -148,7 +148,7 @@ function main() {
   let postSwitchDevice = "?";
   try { postSwitchDevice = readPopupValue(proc, isDevicePopup) || "?"; } catch (e) {}
   console.log(
-    `[scrape] post-switch device=${postSwitchDevice} total=${postSwitchTotal} (waited ${waitedS}s, total ${postSwitchTotal === initialTotal ? "UNCHANGED — possible race" : "changed"})`
+    `[scrape] post-switch device=${redactPersonal(postSwitchDevice)} total=${postSwitchTotal} (waited ${waitedS}s, total ${postSwitchTotal === initialTotal ? "UNCHANGED — possible race" : "changed"})`
   );
 
   // Step 2.5: collect rows ON-screen first.
@@ -219,7 +219,21 @@ function main() {
   return Object.assign({ ok: true }, merged);
 }
 
-
+// Redact personal identifiers from a string before logging it. The
+// device popup label tends to be "Daniel's iPhone" / "Daniel's MacBook"
+// — strip the personal name fragment so /tmp/screentime-ui-sync.log
+// doesn't carry it across disk. Mirror of the TS driver's
+// PERSONAL_REDACT_REGEX. Keep the two in sync if you add terms.
+// See memory: feedback_personal_identifier_redaction.md
+function redactPersonal(s) {
+  if (!s) return s;
+  // Strip name + optional possessive 's so "Daniel's iPhone" → "iPhone"
+  // (not "s iPhone" which a naive replace would produce).
+  return String(s)
+    .replace(/\b(avid|pubsuite|daniel|ferrari)(['’]s)?\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 
 function pressFirstActivityCard(proc) {
   const win = proc.windows[0];

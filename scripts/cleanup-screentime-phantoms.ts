@@ -13,8 +13,15 @@
  *
  * This script:
  *   1. Reads all rows from "Screen Time" tab.
- *   2. For each (date, source=mac_ui_iphone) day, finds the latest
- *      syncedAt batch and marks all earlier rows for deletion.
+ *   2. Marks for deletion any mac_ui_iphone row that's EITHER:
+ *        a) older than the latest syncedAt for its date (phantom from
+ *           an earlier broken scrape); OR
+ *        b) a label that the runtime redactor in
+ *           screentime-ui-sync.ts would now reject — i.e. website
+ *           domain rows like "loyalfans.com" (apps-only policy) and
+ *           personal-identifier rows like "Daniel's iPhone" that
+ *           landed before the redactor was added. See memory:
+ *           feedback_personal_identifier_redaction.md.
  *   3. By default DRY-RUN: prints what would be deleted.
  *   4. With --execute: deletes via Sheets batchUpdate (deleteDimension
  *      from bottom up so indices stay stable).
@@ -72,6 +79,27 @@ function sheetsClient(): sheets_v4.Sheets {
     scopes: ["https://www.googleapis.com/auth/spreadsheets"],
   });
   return google.sheets({ version: "v4", auth });
+}
+
+// Mirror the runtime redaction filter from screentime-ui-sync.ts so
+// the cleanup also wipes historical rows that the filter would now
+// reject. Keep these in sync — see
+// feedback_personal_identifier_redaction.md.
+const PERSONAL_REDACT_REGEX =
+  /\b(avid|pubsuite|daniel|ferrari)(['’]s)?\b/i;
+const WEBSITE_TLD_REGEX =
+  /\.(com|net|org|io|app|co|me|tv|au|uk|us|ca|fm|gg|to|nz|info|biz|news)$/i;
+
+function redactionReason(label: string): string | null {
+  if (PERSONAL_REDACT_REGEX.test(label)) return "personal_identifier";
+  if (looksLikeDomain(label)) return "website_domain";
+  return null;
+}
+function looksLikeDomain(label: string): boolean {
+  if (/\s/.test(label)) return false;
+  if (!WEBSITE_TLD_REGEX.test(label)) return false;
+  if (/^(com|org|net|io|co|app|me|gov|edu)\./i.test(label)) return false;
+  return true;
 }
 
 async function findScreenTimeSheetId(client: sheets_v4.Sheets): Promise<number> {
@@ -144,12 +172,17 @@ async function main() {
     if (!cur || r.syncedAt > cur) latestByDate.set(r.date, r.syncedAt);
   }
 
-  const toDelete = targetRows.filter(
-    (r) => r.syncedAt !== latestByDate.get(r.date)
-  );
-  const toKeep = targetRows.filter(
-    (r) => r.syncedAt === latestByDate.get(r.date)
-  );
+  // Phantom rows: anything older than the latest syncedAt for its date.
+  // PLUS any row (latest or not) whose label would now be filtered by
+  // the runtime redactor in screentime-ui-sync.ts — these are the
+  // historical website / personal-identifier rows that landed before
+  // the filter was added. (See feedback_personal_identifier_redaction.)
+  const toDelete = targetRows.filter((r) => {
+    const isOlderBatch = r.syncedAt !== latestByDate.get(r.date);
+    const isBadLabel = redactionReason(r.label) !== null;
+    return isOlderBatch || isBadLabel;
+  });
+  const toKeep = targetRows.filter((r) => !toDelete.includes(r));
 
   console.log(
     `Source=${TARGET_SOURCE} ${ONLY_DATE ? `date=${ONLY_DATE}` : "(all dates)"}`
