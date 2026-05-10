@@ -281,7 +281,7 @@ export function HarleyForm({
           Goddess Control Panel
         </p>
         <p className="text-sm text-zinc-400 mt-1 mb-5">
-          Set or extend his denial. He cannot see this page.
+          Extend, forgive, or punish.
         </p>
 
         {/* Current state */}
