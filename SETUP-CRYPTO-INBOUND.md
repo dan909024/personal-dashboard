@@ -74,6 +74,38 @@ If nothing happens, check:
   for emails it deliberately ignores (not a USDT/USDC withdrawal,
   status not Completed, etc.). That's a 200, not an error.
 
+### Most common silent-failure mode: stale CloudMailin URL
+
+If the CloudMailin daily report shows non-zero "rejected" counts and
+the `Harley Payments` tab is empty, the secret embedded in the
+CloudMailin POST URL has diverged from `CRYPTO_INGEST_SECRET` in
+Vercel prod env (every POST then 401s with `{"error":"bad_secret"}`).
+Common triggers: rotating the env var without updating CloudMailin,
+re-creating the address, or pasting an old value back in.
+
+To diagnose, probe with the local secret (auth-pass with garbage body
+returns 400 `bad_json`; auth-fail returns 401 `bad_secret`):
+
+```sh
+SECRET=$(grep -E '^CRYPTO_INGEST_SECRET=' .env.local | cut -d= -f2- | tr -d '"')
+curl -sS -w "\nHTTP %{http_code}\n" -X POST \
+  "https://crypto:${SECRET}@personal-dashboard-six-tan.vercel.app/api/crypto/inbound" \
+  -H "Content-Type: application/json" -d 'not-json'
+```
+
+To recover, rotate: `openssl rand -hex 32`, then `vercel env rm
+CRYPTO_INGEST_SECRET production && vercel env add
+CRYPTO_INGEST_SECRET production` (paste new value), redeploy, update
+the CloudMailin URL with the same new value, then forward any missed
+withdrawal emails to the CloudMailin address to backfill. Same
+playbook applies to `AMEX_INGEST_SECRET` for `/api/amex/inbound`.
+
+Quick read of the Sheet to confirm rows are landing:
+
+```sh
+npx tsx scripts/check-harley-payments.ts 30
+```
+
 ## What gets counted
 
 Only emails matching ALL of these:
