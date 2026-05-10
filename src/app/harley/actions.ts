@@ -18,7 +18,11 @@ import {
   createHarleyCalendarEvent,
   isCalendarConfigured,
 } from "@/lib/calendar";
-import { HARLEY_RULES, type HarleyRuleId } from "@/lib/harley-rules";
+import {
+  HARLEY_RULES,
+  fineAmountSettingKey,
+  type HarleyRuleId,
+} from "@/lib/harley-rules";
 import { verifyJWT } from "@/lib/jwt";
 import { sendDanTelegram } from "@/lib/telegram";
 
@@ -271,6 +275,39 @@ export async function clearAllUnpaidFinesAction(): Promise<
     await appendGoddessAudit("reset-balance", `${cleared} row(s)`);
     revalidateAll();
     return { ok: true, cleared };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function setFineAmountAction(
+  ruleId: string,
+  amount: number
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  if (!Object.prototype.hasOwnProperty.call(HARLEY_RULES, ruleId)) {
+    return { ok: false, error: "unknown rule" };
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, error: "amount must be > 0" };
+  }
+  // Same fat-finger guard as addFineAction.
+  if (amount > 100_000) {
+    return { ok: false, error: "amount too large" };
+  }
+  const rounded = Math.round(amount);
+  try {
+    await setSetting(
+      fineAmountSettingKey(ruleId as HarleyRuleId),
+      rounded,
+      "harley-admin"
+    );
+    await appendGoddessAudit(
+      "set-fine-amount",
+      `${ruleId} → $${rounded}`
+    );
+    revalidateAll();
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

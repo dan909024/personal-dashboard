@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { HARLEY_RULES, type HarleyRuleId } from "@/lib/harley-rules";
 import type { GoddessAuditEntry, PunishmentWithRow } from "@/lib/sheets";
 import type { HarleyRuleStatus } from "@/lib/harley-meter";
+import type { FineAmounts } from "@/lib/rule-eval";
 import {
   addCalendarTaskAction,
   addFineAction,
@@ -15,6 +16,7 @@ import {
   markFinePaidAction,
   messageDanielAction,
   setDenialDateAction,
+  setFineAmountAction,
   setHardModeAction,
   setOrgasmAllowedAdminAction,
   voidFineAction,
@@ -49,6 +51,7 @@ export function HarleyForm({
   ruleDetail,
   calendarConfigured,
   auditEntries,
+  fineAmounts,
 }: {
   endDate: string | null;
   allowed: "yes" | "no";
@@ -60,6 +63,7 @@ export function HarleyForm({
   ruleDetail: HarleyRuleStatus[];
   calendarConfigured: boolean;
   auditEntries: GoddessAuditEntry[];
+  fineAmounts: FineAmounts;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -211,6 +215,16 @@ export function HarleyForm({
     setFineRule(ruleId);
     setFineReason(label);
     flash(`Prefilled: ${label}`);
+  };
+
+  const onSaveFineAmount = (ruleId: HarleyRuleId, amount: number) => {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      flash("Enter a positive amount");
+      return;
+    }
+    run(`${HARLEY_RULES[ruleId].label} → $${amount}`, () =>
+      setFineAmountAction(ruleId, amount)
+    );
   };
 
   const onMessageDaniel = async () => {
@@ -472,6 +486,29 @@ export function HarleyForm({
             </ul>
           </div>
         )}
+
+        {/* Fine schedule — per-rule penalty amounts */}
+        <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+            Fine schedule
+          </p>
+          <p className="text-[11px] text-zinc-500 mb-3 italic">
+            What he owes you each time he fails. Edit any amount and tap save —
+            applies to future auto-fines and the Slipped button immediately.
+          </p>
+          <ul className="space-y-1.5">
+            {(Object.keys(HARLEY_RULES) as HarleyRuleId[]).map((id) => (
+              <FineScheduleRow
+                key={id}
+                ruleId={id}
+                label={HARLEY_RULES[id].label}
+                amount={fineAmounts[id]}
+                disabled={isPending}
+                onSave={onSaveFineAmount}
+              />
+            ))}
+          </ul>
+        </div>
 
         {/* Fines */}
         <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
@@ -883,6 +920,98 @@ function QuickButton({
     >
       {children}
     </button>
+  );
+}
+
+function FineScheduleRow({
+  ruleId,
+  label,
+  amount,
+  disabled,
+  onSave,
+}: {
+  ruleId: HarleyRuleId;
+  label: string;
+  amount: number;
+  disabled?: boolean;
+  onSave: (ruleId: HarleyRuleId, amount: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(amount));
+
+  const startEdit = () => {
+    setDraft(String(amount));
+    setEditing(true);
+  };
+  const cancel = () => {
+    setDraft(String(amount));
+    setEditing(false);
+  };
+  const commit = () => {
+    const n = Number(draft);
+    if (!Number.isFinite(n) || n <= 0) return;
+    setEditing(false);
+    if (n === amount) return;
+    onSave(ruleId, n);
+  };
+
+  return (
+    <li className="flex items-center gap-2 text-xs">
+      <span className="flex-1 text-zinc-300 truncate" title={label}>
+        {label}
+      </span>
+      {editing ? (
+        <>
+          <div className="relative w-20">
+            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">
+              $
+            </span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min="1"
+              step="1"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commit();
+                if (e.key === "Escape") cancel();
+              }}
+              autoFocus
+              className="w-full text-xs font-mono tabular-nums bg-black/40 border border-purple-700 text-amber-200 pl-5 pr-1 py-1 focus:outline-none focus:border-purple-400"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={commit}
+            disabled={disabled}
+            title="Save"
+            className="px-2 py-1 text-[10px] uppercase tracking-widest border border-emerald-800 text-emerald-300 hover:border-emerald-400 hover:bg-emerald-950/40 transition-colors disabled:opacity-40"
+          >
+            ✓
+          </button>
+          <button
+            type="button"
+            onClick={cancel}
+            disabled={disabled}
+            title="Cancel"
+            className="px-2 py-1 text-[10px] uppercase tracking-widest border border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40"
+          >
+            ✕
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={startEdit}
+          disabled={disabled}
+          title="Edit amount"
+          className="font-mono tabular-nums text-amber-300 px-2 py-1 border border-transparent hover:border-purple-700 hover:bg-purple-950/40 transition-colors disabled:opacity-40"
+        >
+          ${amount}
+        </button>
+      )}
+    </li>
   );
 }
 

@@ -23,6 +23,8 @@ import {
   getHarleyMeterDetail,
   type HarleyRuleStatus,
 } from "@/lib/harley-meter";
+import { getFineAmounts } from "@/lib/rule-eval";
+import { DEFAULT_FINE_AMOUNTS } from "@/lib/harley-rules";
 import { isCalendarConfigured } from "@/lib/calendar";
 import { verifyJWT } from "@/lib/jwt";
 import { HarleyForm } from "./HarleyForm";
@@ -57,6 +59,7 @@ export default async function HarleyAdminPage() {
     meter,
     ruleDetail,
     auditEntries,
+    fineAmounts,
   ] = await Promise.all([
     readDenialEndDate(),
     getWeaknessSettings(),
@@ -69,6 +72,7 @@ export default async function HarleyAdminPage() {
       ? getHarleyMeterDetail()
       : Promise.resolve([] as HarleyRuleStatus[]),
     getRecentGoddessAudit(5),
+    configured ? getFineAmounts() : Promise.resolve(DEFAULT_FINE_AMOUNTS),
   ]);
 
   const hardMode =
@@ -90,6 +94,7 @@ export default async function HarleyAdminPage() {
       ruleDetail={ruleDetail}
       calendarConfigured={isCalendarConfigured()}
       auditEntries={auditEntries}
+      fineAmounts={fineAmounts}
     />
   );
 }

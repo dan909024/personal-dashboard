@@ -39,8 +39,25 @@ export const HARLEY_RULES: Record<HarleyRuleId, HarleyRule> = {
   slip: { id: "slip", label: "Cumming without permission", source: "WeaknessAltar Slipped button" },
 };
 
-/** Per-rule fine amount in AUD. Used by manual slip logging and the auto rule-eval cron. */
-export const SLIP_FINE_AMOUNT = 20;
+/**
+ * Default per-rule fine amount in AUD. Acts as the fallback when the matching
+ * `fine_amount_<id>` row is missing from Settings. Live amounts are read via
+ * `getFineAmounts()` in rule-eval.ts and can be edited from the Harley panel.
+ */
+export const DEFAULT_FINE_AMOUNTS: Record<HarleyRuleId, number> = {
+  wake: 10,
+  bed: 10,
+  gym: 25,
+  steps: 20,
+  water: 20,
+  tasks: 25,
+  slip: 20,
+};
+
+/** Settings key Harley edits to override a rule's default fine amount. */
+export function fineAmountSettingKey(ruleId: HarleyRuleId): string {
+  return `fine_amount_${ruleId}`;
+}
 
 export function lookupRule(ruleId: string | undefined): HarleyRule | null {
   if (!ruleId) return null;

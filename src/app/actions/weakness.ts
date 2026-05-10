@@ -12,7 +12,7 @@ import {
   setSetting,
   type OrgasmType,
 } from "@/lib/sheets";
-import { SLIP_FINE_AMOUNT } from "@/lib/harley-rules";
+import { getFineAmounts } from "@/lib/rule-eval";
 import { sendHarleyTelegram } from "@/lib/telegram";
 import { getDashboardWeakness } from "@/lib/weakness";
 
@@ -57,20 +57,22 @@ export async function logOrgasmAction(
       time: backdate?.time,
     });
 
-    // A "lapsed" log is a self-reported slip — auto-fine $20 to the
+    // A "lapsed" log is a self-reported slip — auto-fine the live slip
+    // amount (Harley can override fine_amount_slip from her panel) to the
     // Punishments tab. ruleId="slip" so the OWED HARLEY tooltip shows
     // the rule provenance instead of "Manual fine".
     let finedAmount = 0;
     if (type === "lapsed") {
       try {
+        const slipAmount = (await getFineAmounts()).slip;
         await appendPunishment({
-          amount: SLIP_FINE_AMOUNT,
+          amount: slipAmount,
           reason: "Cumming without permission",
           setBy: "auto (slip button)",
           ruleId: "slip",
           date,
         });
-        finedAmount = SLIP_FINE_AMOUNT;
+        finedAmount = slipAmount;
       } catch (fineErr) {
         // Don't fail the whole action if the fine append fails — the
         // orgasm log already wrote successfully and Harley still gets

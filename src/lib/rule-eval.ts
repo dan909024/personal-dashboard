@@ -26,6 +26,7 @@ import {
   getRecentAppleHealth,
   getRecentWhoopDaily,
   countWhoopWorkoutsInRange,
+  getSetting,
   isConfigured,
   todaySydneyISO,
   type WhoopDaily,
@@ -41,22 +42,36 @@ import {
   WATER_TARGET_ML_PER_DAY,
   HARLEY_TASK_TARGET_PER_WEEK,
 } from "./harley-meter";
-import { SLIP_FINE_AMOUNT, type HarleyRuleId } from "./harley-rules";
+import {
+  DEFAULT_FINE_AMOUNTS,
+  fineAmountSettingKey,
+  HARLEY_RULES,
+  type HarleyRuleId,
+} from "./harley-rules";
 
 export type FineAmounts = Record<HarleyRuleId, number>;
 
-// `slip` is user-triggered (WeaknessAltar Slipped button), not part of
-// the auto-eval cron's rule loop — but its amount lives here too so
-// FineAmounts stays exhaustive over HarleyRuleId.
-export const FINE_AMOUNTS: FineAmounts = {
-  wake: 10,
-  bed: 10,
-  gym: 25,
-  steps: 20,
-  water: 20,
-  tasks: 25,
-  slip: SLIP_FINE_AMOUNT,
-};
+/** Back-compat alias — defaults table that ships with the app. */
+export const FINE_AMOUNTS: FineAmounts = DEFAULT_FINE_AMOUNTS;
+
+/**
+ * Read the live per-rule fine amounts. Each rule's `fine_amount_<id>` row in
+ * Settings overrides its default; missing or unparseable rows fall back to
+ * `DEFAULT_FINE_AMOUNTS`. Used by the auto rule-eval cron, the slip button,
+ * and the Harley panel's "Fine schedule" section.
+ */
+export async function getFineAmounts(): Promise<FineAmounts> {
+  const ids = Object.keys(HARLEY_RULES) as HarleyRuleId[];
+  const out: FineAmounts = { ...DEFAULT_FINE_AMOUNTS };
+  const raws = await Promise.all(
+    ids.map((id) => getSetting(fineAmountSettingKey(id)))
+  );
+  ids.forEach((id, i) => {
+    const n = Number(raws[i]);
+    if (Number.isFinite(n) && n > 0) out[id] = n;
+  });
+  return out;
+}
 
 export type RuleEvalCandidate = {
   ruleId: HarleyRuleId;
@@ -142,7 +157,7 @@ function dailyDates(today: string): string[] {
   return out;
 }
 
-async function buildWakeCandidates(today: string): Promise<RuleEvalCandidate[]> {
+async function buildWakeCandidates(today: string, amount: number): Promise<RuleEvalCandidate[]> {
   const rows = await getRecentWhoopDaily(DAILY_LOOKBACK + 1);
   const byDate = new Map(rows.map((r) => [r.date, r]));
   const candidates: RuleEvalCandidate[] = [];
@@ -152,7 +167,7 @@ async function buildWakeCandidates(today: string): Promise<RuleEvalCandidate[]> 
     candidates.push({
       ruleId: "wake",
       periodStart: date,
-      amount: FINE_AMOUNTS.wake,
+      amount,
       reason: `Late wake (${score.detail}) — ${date}`,
       setBy: "auto",
     });
@@ -160,7 +175,7 @@ async function buildWakeCandidates(today: string): Promise<RuleEvalCandidate[]> 
   return candidates;
 }
 
-async function buildBedCandidates(today: string): Promise<RuleEvalCandidate[]> {
+async function buildBedCandidates(today: string, amount: number): Promise<RuleEvalCandidate[]> {
   const rows = await getRecentWhoopDaily(DAILY_LOOKBACK + 1);
   const byDate = new Map(rows.map((r) => [r.date, r]));
   const candidates: RuleEvalCandidate[] = [];
@@ -170,7 +185,7 @@ async function buildBedCandidates(today: string): Promise<RuleEvalCandidate[]> {
     candidates.push({
       ruleId: "bed",
       periodStart: date,
-      amount: FINE_AMOUNTS.bed,
+      amount,
       reason: `Late bed (${score.detail}) — ${date}`,
       setBy: "auto",
     });
@@ -178,13 +193,13 @@ async function buildBedCandidates(today: string): Promise<RuleEvalCandidate[]> {
   return candidates;
 }
 
-async function buildGymCandidate(weekStart: string, weekEnd: string): Promise<RuleEvalCandidate | null> {
+async function buildGymCandidate(weekStart: string, weekEnd: string, amount: number): Promise<RuleEvalCandidate | null> {
   const count = await countWhoopWorkoutsInRange(weekStart, weekEnd);
   if (count >= GYM_TARGET_PER_WEEK) return null;
   return {
     ruleId: "gym",
     periodStart: weekStart,
-    amount: FINE_AMOUNTS.gym,
+    amount,
     reason: `Missed gym target (${count}/${GYM_TARGET_PER_WEEK}) — week of ${weekStart}`,
     setBy: "auto",
   };
@@ -200,7 +215,7 @@ function filterRowsInRange(rows: AppleHealthRow[], start: string, end: string): 
 // dry run) is wrong. Treat as "can't evaluate, skip" instead.
 const APPLE_HEALTH_MIN_DAYS = 5;
 
-async function buildStepsCandidate(weekStart: string, weekEnd: string): Promise<RuleEvalCandidate | null> {
+async function buildStepsCandidate(weekStart: string, weekEnd: string, amount: number): Promise<RuleEvalCandidate | null> {
   const rows = filterRowsInRange(await getRecentAppleHealth(14), weekStart, weekEnd);
   const daysWithSteps = rows.filter((r) => (r.steps || 0) > 0).length;
   if (daysWithSteps < APPLE_HEALTH_MIN_DAYS) return null;
@@ -209,13 +224,13 @@ async function buildStepsCandidate(weekStart: string, weekEnd: string): Promise<
   return {
     ruleId: "steps",
     periodStart: weekStart,
-    amount: FINE_AMOUNTS.steps,
+    amount,
     reason: `Missed steps target (${total.toLocaleString("en-AU")}/${STEPS_TARGET_PER_WEEK.toLocaleString("en-AU")}) — week of ${weekStart}`,
     setBy: "auto",
   };
 }
 
-async function buildWaterCandidate(weekStart: string, weekEnd: string): Promise<RuleEvalCandidate | null> {
+async function buildWaterCandidate(weekStart: string, weekEnd: string, amount: number): Promise<RuleEvalCandidate | null> {
   const rows = filterRowsInRange(await getRecentAppleHealth(14), weekStart, weekEnd);
   const withWater = rows.filter((r) => typeof r.waterMl === "number" && r.waterMl > 0);
   if (withWater.length < APPLE_HEALTH_MIN_DAYS) return null;
@@ -225,13 +240,13 @@ async function buildWaterCandidate(weekStart: string, weekEnd: string): Promise<
   return {
     ruleId: "water",
     periodStart: weekStart,
-    amount: FINE_AMOUNTS.water,
+    amount,
     reason: `Missed water target (${(avgMl / 1000).toFixed(1)}L avg / ${(WATER_TARGET_ML_PER_DAY / 1000).toFixed(1)}L) — week of ${weekStart}`,
     setBy: "auto",
   };
 }
 
-async function buildTasksCandidate(weekStart: string, weekEnd: string): Promise<RuleEvalCandidate | null> {
+async function buildTasksCandidate(weekStart: string, weekEnd: string, amount: number): Promise<RuleEvalCandidate | null> {
   if (!isCalendarConfigured()) return null;
   const { past } = await getHarleyTaskWindow();
   const startMs = Date.parse(weekStart + "T00:00:00+10:00");
@@ -244,7 +259,7 @@ async function buildTasksCandidate(weekStart: string, weekEnd: string): Promise<
   return {
     ruleId: "tasks",
     periodStart: weekStart,
-    amount: FINE_AMOUNTS.tasks,
+    amount,
     reason: `Missed tasks target (${inRange.length}/${HARLEY_TASK_TARGET_PER_WEEK}) — week of ${weekStart}`,
     setBy: "auto",
   };
@@ -259,12 +274,13 @@ export async function evaluateRulesAndFine(
   if (!isConfigured()) return result;
 
   const today = opts.today || todaySydneyISO();
+  const amounts = await getFineAmounts();
 
   const candidates: RuleEvalCandidate[] = [];
 
   // Daily rules — last 7 days each.
-  candidates.push(...(await buildWakeCandidates(today)));
-  candidates.push(...(await buildBedCandidates(today)));
+  candidates.push(...(await buildWakeCandidates(today, amounts.wake)));
+  candidates.push(...(await buildBedCandidates(today, amounts.bed)));
 
   // Weekly rules — only fire on Sunday and score the just-ending Mon–Sun.
   // Cron tick is 22:00 Sydney so Daniel sees the verdict before bed
@@ -277,10 +293,10 @@ export async function evaluateRulesAndFine(
     const weekStart = addDaysISO(today, -6); // Monday of this just-ending week
     const weekEnd = today;                    // Sunday = today
     const weekly = await Promise.all([
-      buildGymCandidate(weekStart, weekEnd),
-      buildStepsCandidate(weekStart, weekEnd),
-      buildWaterCandidate(weekStart, weekEnd),
-      buildTasksCandidate(weekStart, weekEnd),
+      buildGymCandidate(weekStart, weekEnd, amounts.gym),
+      buildStepsCandidate(weekStart, weekEnd, amounts.steps),
+      buildWaterCandidate(weekStart, weekEnd, amounts.water),
+      buildTasksCandidate(weekStart, weekEnd, amounts.tasks),
     ]);
     for (const c of weekly) if (c) candidates.push(c);
   }
