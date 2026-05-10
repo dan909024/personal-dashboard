@@ -51,6 +51,11 @@ import {
   GYM_TARGET_PER_WEEK,
   STEPS_TARGET_PER_WEEK,
   WATER_TARGET_ML_PER_DAY,
+  WRITING_BUNDLE_ID,
+  WRITING_TARGET_HR_DEFAULT,
+  SCREENTIME_BUCKETS,
+  PROTEIN_DAYS_TARGET,
+  PROTEIN_DEFAULT_TARGET_G,
 } from "./harley-meter";
 import {
   displayAppName,
@@ -65,29 +70,8 @@ import {
   type HarleyRuleId,
 } from "./harley-rules";
 
-/* ---------- new-rule thresholds ---------- */
-
-/** Obsidian bundle id used for writing-rule scoring. */
-const WRITING_BUNDLE_ID = "md.obsidian";
-/** Default weekly writing-hours target (overridable via Settings `writing_target_hr_per_week`). */
-const WRITING_TARGET_HR_DEFAULT = 8;
 /** Min days of any Screen Time data in a week before we'll fine — guards against ingestion lapses. */
 const SCREENTIME_MIN_DAYS = 5;
-
-/**
- * Daily Screen Time buckets fined when over target. Mirrors the
- * dashboard SCREENTIME tile's buckets but is a separate copy so the
- * fineable thresholds can drift from the display tile if needed.
- */
-const SCREENTIME_BUCKETS: Array<{ label: string; apps: Set<string>; targetMin: number }> = [
-  { label: "YouTube", apps: new Set(["YouTube"]), targetMin: 45 },
-  { label: "Instagram", apps: new Set(["Instagram"]), targetMin: 10 },
-  { label: "Dating", apps: new Set(["Raya", "Tinder", "Hinge", "Bumble"]), targetMin: 0 },
-];
-
-/** Min days/week required to pass the protein rule. */
-const PROTEIN_DAYS_TARGET = 5;
-const PROTEIN_DEFAULT_TARGET_G = 221;
 
 /** Settings keys for the daily-target sliders Harley sets from the panel. */
 export const WORSHIP_DAILY_TARGET_MIN_KEY = "worship_daily_target_min";
