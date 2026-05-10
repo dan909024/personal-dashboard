@@ -444,14 +444,14 @@ export function HarleyForm({
           </button>
         </div>
 
-        {/* At-risk rules */}
+        {/* Daniel's last-7-days performance against each rule. */}
         {ruleDetail.length > 0 && (
           <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
             <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
-              Rule status · this week
+              Dan&rsquo;s last 7 days
             </p>
             <p className="text-[11px] text-zinc-500 mb-3 italic">
-              Tap a failing rule to prefill a fine for it.
+              How he performed against each rule. Tap a failing one to prefill a fine for it.
             </p>
             <ul className="space-y-1">
               {ruleDetail.map((r) => (

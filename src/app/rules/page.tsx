@@ -11,7 +11,6 @@ import {
   GYM_TARGET_PER_WEEK,
   STEPS_TARGET_PER_WEEK,
   WATER_TARGET_ML_PER_DAY,
-  HARLEY_TASK_TARGET_PER_WEEK,
   WINDOW_DAYS,
 } from "@/lib/harley-meter";
 
@@ -38,7 +37,7 @@ const HARLEY_METER_RULES: Rule[] = [
     title: "Wake by 06:30",
     threshold: `≤ ${fmtClock(WAKE_BY_MIN)} (Sydney)`,
     source: "Whoop sleep onset",
-    weight: "1/6",
+    weight: "1/5",
     notes: "Scored as fraction of days met across the rolling 7-day window.",
   },
   {
@@ -46,7 +45,7 @@ const HARLEY_METER_RULES: Rule[] = [
     title: "Bed by 22:30",
     threshold: `≤ ${fmtClock(BED_BY_MIN)} (Sydney)`,
     source: "Whoop sleep start",
-    weight: "1/6",
+    weight: "1/5",
     notes: "Onset between 00:00–05:59 counts as the next day for comparison.",
   },
   {
@@ -54,7 +53,7 @@ const HARLEY_METER_RULES: Rule[] = [
     title: "Gym sessions",
     threshold: `${GYM_TARGET_PER_WEEK}+ workouts / 7 days`,
     source: "Whoop Workouts",
-    weight: "1/6",
+    weight: "1/5",
     notes: "Apple Health workouts intentionally not counted — Whoop is the source of truth.",
   },
   {
@@ -62,23 +61,14 @@ const HARLEY_METER_RULES: Rule[] = [
     title: "Weekly step volume",
     threshold: `${STEPS_TARGET_PER_WEEK.toLocaleString()} steps / 7 days`,
     source: "Apple Health (Auto Export)",
-    weight: "1/6",
+    weight: "1/5",
   },
   {
     id: "water",
     title: "Water intake",
     threshold: `${(WATER_TARGET_ML_PER_DAY / 1000).toFixed(1)} L / day average`,
     source: "Apple Health · dietaryWater (Ladder writes here)",
-    weight: "1/6",
-  },
-  {
-    id: "tasks",
-    title: "Harley calendar tasks",
-    threshold: `${HARLEY_TASK_TARGET_PER_WEEK}+ past-and-still-on-calendar / 7 days`,
-    source: "Google Calendar (`weekly`)",
-    weight: "1/6",
-    notes:
-      "Past Harley-authored events still on the calendar count as done. Deletion = withdrawn (not failed).",
+    weight: "1/5",
   },
 ];
 
@@ -210,7 +200,6 @@ export default function RulesPage() {
                 <li>gym — $25 / failed week</li>
                 <li>steps — $20 / failed week</li>
                 <li>water — $20 / failed week</li>
-                <li>tasks — $25 / failed week</li>
               </ul>
               <p className="text-zinc-500 mt-2 text-xs">
                 Daily rules look back 7 days each run (catch-up safe). Weekly

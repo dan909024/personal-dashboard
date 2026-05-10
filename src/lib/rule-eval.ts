@@ -13,7 +13,6 @@
  *   gym   — < 4 Whoop workouts
  *   steps — < 70k Apple Health steps
  *   water — < 3.3 L Apple Health waterMl daily average
- *   tasks — < 4 Harley-authored past calendar events
  *
  * Daily rules look back 7 days so a missed cron run can catch up. Weekly
  * rules only fire on Sunday — skipping a Sunday means that week is
@@ -33,14 +32,12 @@ import {
   type AppleHealthRow,
   type Punishment,
 } from "./sheets";
-import { getHarleyTaskWindow, isCalendarConfigured } from "./calendar";
 import {
   WAKE_BY_MIN,
   BED_BY_MIN,
   GYM_TARGET_PER_WEEK,
   STEPS_TARGET_PER_WEEK,
   WATER_TARGET_ML_PER_DAY,
-  HARLEY_TASK_TARGET_PER_WEEK,
 } from "./harley-meter";
 import {
   DEFAULT_FINE_AMOUNTS,
@@ -246,25 +243,6 @@ async function buildWaterCandidate(weekStart: string, weekEnd: string, amount: n
   };
 }
 
-async function buildTasksCandidate(weekStart: string, weekEnd: string, amount: number): Promise<RuleEvalCandidate | null> {
-  if (!isCalendarConfigured()) return null;
-  const { past } = await getHarleyTaskWindow();
-  const startMs = Date.parse(weekStart + "T00:00:00+10:00");
-  const endMs = Date.parse(weekEnd + "T23:59:59+10:00");
-  const inRange = past.filter((t) => {
-    const ms = Date.parse(t.startISO);
-    return Number.isFinite(ms) && ms >= startMs && ms <= endMs;
-  });
-  if (inRange.length >= HARLEY_TASK_TARGET_PER_WEEK) return null;
-  return {
-    ruleId: "tasks",
-    periodStart: weekStart,
-    amount,
-    reason: `Missed tasks target (${inRange.length}/${HARLEY_TASK_TARGET_PER_WEEK}) — week of ${weekStart}`,
-    setBy: "auto",
-  };
-}
-
 /* ---------- top-level orchestration ---------- */
 
 export async function evaluateRulesAndFine(
@@ -296,7 +274,6 @@ export async function evaluateRulesAndFine(
       buildGymCandidate(weekStart, weekEnd, amounts.gym),
       buildStepsCandidate(weekStart, weekEnd, amounts.steps),
       buildWaterCandidate(weekStart, weekEnd, amounts.water),
-      buildTasksCandidate(weekStart, weekEnd, amounts.tasks),
     ]);
     for (const c of weekly) if (c) candidates.push(c);
   }

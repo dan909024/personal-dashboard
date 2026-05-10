@@ -20,7 +20,6 @@ export type HarleyRuleId =
   | "gym"
   | "steps"
   | "water"
-  | "tasks"
   | "slip";
 
 export type HarleyRule = {
@@ -35,7 +34,6 @@ export const HARLEY_RULES: Record<HarleyRuleId, HarleyRule> = {
   gym: { id: "gym", label: "Gym 4+ /week", source: "Whoop Workouts" },
   steps: { id: "steps", label: "70k steps /week", source: "Apple Health" },
   water: { id: "water", label: "3.3 L water /day avg", source: "Apple Health · dietaryWater" },
-  tasks: { id: "tasks", label: "Harley calendar tasks 4+/week", source: "Google Calendar (`weekly`)" },
   slip: { id: "slip", label: "Cumming without permission", source: "WeaknessAltar Slipped button" },
 };
 
@@ -50,7 +48,6 @@ export const DEFAULT_FINE_AMOUNTS: Record<HarleyRuleId, number> = {
   gym: 25,
   steps: 20,
   water: 20,
-  tasks: 25,
   slip: 20,
 };
 
