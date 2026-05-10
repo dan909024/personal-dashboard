@@ -1,15 +1,12 @@
 /**
  * Harley Meter — composite score (0-100) over a rolling 7-day window.
  *
- * Six equally-weighted inputs:
+ * Five equally-weighted inputs:
  *   1. Wake by 06:30          (Whoop Daily wake time)
  *   2. Bed by 22:30           (Whoop Daily sleep onset)
  *   3. Gym 4+ /week           (Whoop Workouts count)
  *   4. 70k steps /week        (Apple Health steps)
  *   5. 3.3 L water /day avg   (Apple Health waterMl)
- *   6. Harley calendar tasks  (4/week target; past Harley-authored events
- *                              still on the calendar are treated as done —
- *                              deletion = task withdrawn, not failed)
  *
  * Each input contributes 0..1; the meter is the average × 100.
  *
@@ -22,14 +19,12 @@ import {
   getDashboardWhoopWorkouts,
   isConfigured,
 } from "./sheets";
-import { getHarleyTaskWindow, isCalendarConfigured } from "./calendar";
 
 export const WAKE_BY_MIN = 6 * 60 + 30;       // 06:30
 export const BED_BY_MIN = 22 * 60 + 30;       // 22:30
 export const GYM_TARGET_PER_WEEK = 4;
 export const STEPS_TARGET_PER_WEEK = 70_000;
 export const WATER_TARGET_ML_PER_DAY = 3_300;
-export const HARLEY_TASK_TARGET_PER_WEEK = 4;
 export const WINDOW_DAYS = 7;
 
 /**
@@ -112,14 +107,6 @@ async function waterInput(): Promise<number> {
   return Math.min(avgMl / WATER_TARGET_ML_PER_DAY, 1);
 }
 
-async function harleyTasksInput(): Promise<number> {
-  if (!isCalendarConfigured()) return 0;
-  const { past } = await getHarleyTaskWindow();
-  // Past Harley events still on the calendar count as done (deletion =
-  // withdrawn). Score = pace toward HARLEY_TASK_TARGET_PER_WEEK.
-  return Math.min(past.length / HARLEY_TASK_TARGET_PER_WEEK, 1);
-}
-
 export const getHarleyMeter = unstable_cache(
   async (): Promise<number> => {
     if (!isConfigured()) return 0;
@@ -129,7 +116,6 @@ export const getHarleyMeter = unstable_cache(
       gymInput(),
       stepsInput(),
       waterInput(),
-      harleyTasksInput(),
     ]);
     const avg = inputs.reduce((s, v) => s + v, 0) / inputs.length;
     return Math.round(avg * 100);
@@ -139,7 +125,7 @@ export const getHarleyMeter = unstable_cache(
 );
 
 export type HarleyRuleStatus = {
-  id: "wake" | "bed" | "gym" | "steps" | "water" | "tasks";
+  id: "wake" | "bed" | "gym" | "steps" | "water";
   label: string;
   /** 0..1 input score (same number that feeds the meter average). */
   score: number;
@@ -164,13 +150,12 @@ function bucket(score: number): HarleyRuleStatus["state"] {
 export const getHarleyMeterDetail = unstable_cache(
   async (): Promise<HarleyRuleStatus[]> => {
     if (!isConfigured()) return [];
-    const [wake, bed, gym, steps, water, tasks] = await Promise.all([
+    const [wake, bed, gym, steps, water] = await Promise.all([
       wakeInput(),
       bedInput(),
       gymInput(),
       stepsInput(),
       waterInput(),
-      harleyTasksInput(),
     ]);
     return [
       { id: "wake", label: "Wake by 06:30", score: wake, state: bucket(wake) },
@@ -178,7 +163,6 @@ export const getHarleyMeterDetail = unstable_cache(
       { id: "gym", label: "Gym 4+/week", score: gym, state: bucket(gym) },
       { id: "steps", label: "70k steps/week", score: steps, state: bucket(steps) },
       { id: "water", label: "3.3 L water/day", score: water, state: bucket(water) },
-      { id: "tasks", label: "Harley tasks 4+/wk", score: tasks, state: bucket(tasks) },
     ];
   },
   ["dashboard:harley-meter-detail"],
