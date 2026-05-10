@@ -525,29 +525,6 @@ export function HarleyForm({
           </div>
         )}
 
-        {/* Fine schedule — per-rule penalty amounts */}
-        <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
-          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
-            Fine schedule
-          </p>
-          <p className="text-[11px] text-zinc-500 mb-3 italic">
-            What he owes you each time he fails. Edit any amount and tap save —
-            applies to future auto-fines and the Slipped button immediately.
-          </p>
-          <ul className="space-y-1.5">
-            {(Object.keys(HARLEY_RULES) as HarleyRuleId[]).map((id) => (
-              <FineScheduleRow
-                key={id}
-                ruleId={id}
-                label={HARLEY_RULES[id].label}
-                amount={fineAmounts[id]}
-                disabled={isPending}
-                onSave={onSaveFineAmount}
-              />
-            ))}
-          </ul>
-        </div>
-
         {/* Daily targets — sliders Harley sets that gate the worship + edges
             rules. Both rules stay dormant while the target is 0, even if the
             Fine schedule amount is set. */}
@@ -574,6 +551,29 @@ export function HarleyForm({
               onSave={onSaveEdgesTarget}
             />
           </div>
+        </div>
+
+        {/* Fine schedule — per-rule penalty amounts */}
+        <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+          <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+            Fine schedule
+          </p>
+          <p className="text-[11px] text-zinc-500 mb-3 italic">
+            What he owes you each time he fails. Edit any amount and tap save —
+            applies to future auto-fines and the Slipped button immediately.
+          </p>
+          <ul className="space-y-1.5">
+            {(Object.keys(HARLEY_RULES) as HarleyRuleId[]).map((id) => (
+              <FineScheduleRow
+                key={id}
+                ruleId={id}
+                label={HARLEY_RULES[id].label}
+                amount={fineAmounts[id]}
+                disabled={isPending}
+                onSave={onSaveFineAmount}
+              />
+            ))}
+          </ul>
         </div>
 
         {/* Fines */}
