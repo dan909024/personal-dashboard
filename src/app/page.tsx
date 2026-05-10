@@ -1,6 +1,7 @@
 import {
   getOpenTasks,
   getHarleyBalance,
+  getWorshipTotals,
   getLatestWhoopDaily,
   isConfigured,
   isWhoopConnected,
@@ -19,6 +20,7 @@ import {
   type DashboardNutrition,
   type ScreenTimeRow,
   type HarleyBalance,
+  type WorshipTotals,
 } from "@/lib/sheets";
 import { getHarleyMeter } from "@/lib/harley-meter";
 import { lookupRule } from "@/lib/harley-rules";
@@ -241,6 +243,7 @@ export default async function Dashboard({
     transactions,
     nutrition,
     coachPhotoUrl,
+    worshipTotals,
   ] = await Promise.all([
     configured ? getOpenTasks(3) : Promise.resolve([]),
     configured ? getHarleyBalance() : Promise.resolve(null as HarleyBalance | null),
@@ -266,6 +269,9 @@ export default async function Dashboard({
       ? getDashboardNutrition()
       : Promise.resolve(null as DashboardNutrition | null),
     getLatestCoachPhotoUrl(),
+    configured
+      ? getWorshipTotals()
+      : Promise.resolve(null as WorshipTotals | null),
   ]);
 
   const calendarConfigured = isCalendarConfigured();
@@ -528,6 +534,10 @@ export default async function Dashboard({
               );
             })()}
           </Tile>
+
+          <Tile title="WORSHIP TOTALS">
+            <WorshipTotalsTile configured={configured} totals={worshipTotals} />
+          </Tile>
         </div>
 
         {/* Harley calendar — events Harley adds to the shared `weekly` calendar */}
@@ -720,6 +730,64 @@ function buildActivityTooltip(a: HarleyActivity): string {
 
 function NoData() {
   return <p className="text-xs text-zinc-500 italic">no data yet</p>;
+}
+
+function fmtMoney(n: number): string {
+  return `$${n.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })}`;
+}
+
+function fmtWorshipDuration(min: number): string {
+  if (!Number.isFinite(min) || min <= 0) return "0m";
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+function WorshipTotalsTile({
+  configured,
+  totals,
+}: {
+  configured: boolean;
+  totals: WorshipTotals | null;
+}) {
+  if (!configured) {
+    return (
+      <>
+        <p className="text-3xl font-bold text-rose-300 mb-2">$2,800</p>
+        <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
+          Lifetime given
+        </p>
+        <p className="text-xs text-zinc-400">0 edges · 0m worship</p>
+      </>
+    );
+  }
+  if (!totals) return <NoData />;
+  return (
+    <>
+      <p className="text-3xl font-bold text-rose-300 mb-2">
+        {fmtMoney(totals.moneyGivenUsd)}
+      </p>
+      <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">
+        Lifetime given
+      </p>
+      <div className="space-y-0.5 text-xs text-zinc-400">
+        <div className="flex justify-between">
+          <span>Total edges</span>
+          <span className="text-zinc-200 font-mono">{totals.totalEdges}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Worship time</span>
+          <span className="text-zinc-200 font-mono">
+            {fmtWorshipDuration(totals.worshipMinutes)}
+          </span>
+        </div>
+      </div>
+    </>
+  );
 }
 
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { HARLEY_RULES, type HarleyRuleId } from "@/lib/harley-rules";
@@ -279,9 +280,17 @@ export function HarleyForm({
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white p-5">
       <div className="max-w-md mx-auto">
-        <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase">
-          Goddess Control Panel
-        </p>
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase">
+            Goddess Control Panel
+          </p>
+          <Link
+            href="/"
+            className="text-xs text-zinc-400 hover:text-white transition-colors shrink-0"
+          >
+            ← back to dashboard
+          </Link>
+        </div>
         <p className="text-sm text-zinc-400 mt-1 mb-5">
           Extend, forgive, or punish.
         </p>
