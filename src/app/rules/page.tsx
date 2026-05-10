@@ -219,6 +219,7 @@ export default function RulesPage() {
               <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-zinc-400">
                 <li>wake — $10 / failed day (post 06:00)</li>
                 <li>bed — $15 / failed day</li>
+                <li>strain — $15 / failed training day</li>
                 <li>screentime — $10 / failed day (any bucket over)</li>
                 <li>worship — $0 / failed day (dormant — Harley sets target)</li>
                 <li>edges — $0 / failed day (dormant — Harley sets target)</li>
@@ -228,6 +229,12 @@ export default function RulesPage() {
                 <li>writing — $30 / failed week (&lt;8 hr Obsidian)</li>
                 <li>protein — $20 / failed week (&lt;5 days hit target)</li>
               </ul>
+              <p className="text-zinc-500 mt-2 text-xs">
+                <strong>strain</strong>: a training day = any Whoop workout ≥30 min.
+                Daily Whoop strain must be ≥12/21 on those days; otherwise that
+                day gets fined the next eval cycle. Days without a workout aren&rsquo;t
+                fined here — that&rsquo;s the gym rule&rsquo;s job.
+              </p>
               <p className="text-zinc-500 mt-2 text-xs">
                 Daily rules look back 7 days each run (catch-up safe). Weekly
                 rules only evaluate on Sunday night for the just-ending Mon–Sun;
