@@ -51,7 +51,7 @@ export default async function AltarGuidePage() {
           <p>
             The score determines which <strong>phase</strong> he&apos;s
             in — there are 11, named in order from least to most undone.
-            The chart below the tile shows the last 30 days of score so
+            The chart below the tile shows the last 7 days of score so
             you can see the curve and spot brutal days at a glance.
           </p>
         </Section>
@@ -231,7 +231,7 @@ export default async function AltarGuidePage() {
         <Section title="What the chart shows">
           <p>
             The line under the tile is the cumulative weakness score over
-            the past 30 days. Sharp upward spikes are brutal edge days.
+            the past 7 days. Sharp upward spikes are brutal edge days.
             Downward dips are heavy workouts or self-help sessions
             outpacing the day&apos;s base climb. A vertical drop to zero
             means either an allowed orgasm reset the cycle, or a slip

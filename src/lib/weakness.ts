@@ -2,7 +2,7 @@
  * Phase 5B — Goddess's Weakening Altar
  *
  * Pure compute: phase progression, weakness score, brutal-day bonus,
- * calorie detraction, worship/self-help adjustments, 30-day series.
+ * calorie detraction, worship/self-help adjustments, 7-day series.
  * Read sheet rows + settings from src/lib/sheets.ts and pass them in;
  * nothing here touches the network. Tunable from the Settings tab
  * without touching the tile.
@@ -324,7 +324,14 @@ export function computeWeaknessScore(args: {
   return Math.round(score);
 }
 
-// ---------- 30-day series for the chart ----------
+// ---------- 7-day series for the chart ----------
+
+/**
+ * Number of days the chart shows. 7 keeps each daily column visible on
+ * the X-axis (no every-Nth-label thinning) and matches the user's mental
+ * model — review weeks, not months.
+ */
+const CHART_WINDOW_DAYS = 7;
 
 export type WeaknessSeriesPoint = {
   date: string;
@@ -332,14 +339,22 @@ export type WeaknessSeriesPoint = {
   dailyGain: number;
   edges: number;
   phase: string;
+  /**
+   * Set to "peak" on the synthesized point that captures a slip day's
+   * pre-slip cumulative score. The chart emits TWO points for any day
+   * with a slip (peak first, then post-slip end-of-day) so the curve
+   * preserves the high-water mark instead of letting the slip penalty
+   * retroactively hide it.
+   */
+  slipMarker?: "peak";
 };
 
 /**
- * Build a 30-day weakness curve. We iterate cycle-from-start ONCE up to
+ * Build a 7-day weakness curve. We iterate cycle-from-start ONCE up to
  * `today` and capture the cumulative score at each step. Days before the
  * cycle start get score 0.
  */
-export function build30DaySeries(args: {
+export function buildWeeklySeries(args: {
   orgasms: OrgasmLogRow[];
   edges: EdgeLogRow[];
   checkIns: DailyCheckInRow[];
@@ -353,7 +368,16 @@ export function build30DaySeries(args: {
   const startDate = findCycleStart(orgasms, edges, checkIns, today);
   const series: WeaknessSeriesPoint[] = [];
   // Build a date → cumulative score map by walking from cycle start.
-  const scoreByDate = new Map<string, { score: number; daily: ReturnType<typeof computeDailyGain> }>();
+  // preSlipScore captures what the cumulative WOULD have been without the
+  // slip penalty applied — only differs from `score` on days with slips.
+  const scoreByDate = new Map<
+    string,
+    {
+      score: number;
+      preSlipScore: number;
+      daily: ReturnType<typeof computeDailyGain>;
+    }
+  >();
   if (startDate <= today) {
     const days = diffDays(startDate, today);
     let cycleEdgesBeforeDay = 0;
@@ -371,16 +395,40 @@ export function build30DaySeries(args: {
         orgasms,
         settings
       );
+      const prevScore = score;
       score += daily.gain;
       if (score < 0) score = 0;
       cycleEdgesBeforeDay += daily.edges;
-      scoreByDate.set(date, { score: Math.round(score), daily });
+      // Pre-slip score = previous cumulative + today's gain WITHOUT the
+      // slip penalty (daily.gain already has it subtracted, so add it
+      // back). Floored at 0 like the cumulative.
+      const preSlipRaw = prevScore + daily.gain + daily.slipPenalty;
+      const preSlipScore = Math.max(0, Math.round(preSlipRaw));
+      scoreByDate.set(date, {
+        score: Math.round(score),
+        preSlipScore,
+        daily,
+      });
     }
   }
-  for (let i = 29; i >= 0; i--) {
+  for (let i = CHART_WINDOW_DAYS - 1; i >= 0; i--) {
     const date = addDays(today, -i);
     const entry = scoreByDate.get(date);
     if (entry) {
+      // Slip days: emit the pre-slip peak FIRST so the line spikes up
+      // before dropping. Without this, end-of-day cumulative makes a
+      // slip day look like the score never climbed.
+      if (entry.daily.slipCount > 0 && entry.preSlipScore > entry.score) {
+        const peakPhase = determinePhase(entry.preSlipScore, settings);
+        series.push({
+          date,
+          weakness: entry.preSlipScore,
+          dailyGain: Math.round(entry.daily.gain + entry.daily.slipPenalty),
+          edges: entry.daily.edges,
+          phase: peakPhase.name,
+          slipMarker: "peak",
+        });
+      }
       const phase = determinePhase(entry.score, settings);
       series.push({
         date,
@@ -420,7 +468,7 @@ export type WeaknessDashboardData = {
   todayActiveCalories: number;
   todayCalorieDetraction: number;
   currentPhase: PhaseInfo;
-  thirtyDaySeries: WeaknessSeriesPoint[];
+  weeklySeries: WeaknessSeriesPoint[];
   orgasmAllowed: "yes" | "no";
   mostRecentOrgasm: { date: string; type: "allowed" | "lapsed" } | null;
   hasArousalCheckInToday: boolean;
@@ -501,7 +549,7 @@ export async function getDashboardWeakness(): Promise<WeaknessDashboardData> {
     settings
   );
   const phase = determinePhase(score, settings);
-  const series = build30DaySeries({
+  const series = buildWeeklySeries({
     orgasms,
     edges,
     checkIns,
@@ -537,7 +585,7 @@ export async function getDashboardWeakness(): Promise<WeaknessDashboardData> {
     todayActiveCalories: daily.activeCalories,
     todayCalorieDetraction: Math.round(daily.calorieDetraction),
     currentPhase: phase,
-    thirtyDaySeries: series,
+    weeklySeries: series,
     orgasmAllowed: settings.orgasm_allowed,
     mostRecentOrgasm: mostRecentOrgasm
       ? { date: mostRecentOrgasm.date, type: mostRecentOrgasm.type }
@@ -572,7 +620,7 @@ function emptyDashboard(_today: string): WeaknessDashboardData {
       nextPhaseThreshold: null,
       percentToNext: 0,
     },
-    thirtyDaySeries: [],
+    weeklySeries: [],
     orgasmAllowed: "no",
     mostRecentOrgasm: null,
     hasArousalCheckInToday: false,
