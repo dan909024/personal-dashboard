@@ -7,6 +7,8 @@ type SyncResponse = {
   ok: boolean;
   whoop: "ok" | "error" | "not_connected" | "not_configured";
   whoopDetail?: string;
+  screentime: "queued" | "error" | "not_configured";
+  screentimeDetail?: string;
   manualAsks: string[];
   syncedAt: string;
 };
@@ -127,6 +129,13 @@ function DonePanel({ data }: { data: SyncResponse }) {
           <span className="text-zinc-500"> · {data.whoopDetail}</span>
         )}
       </p>
+      <p className="mb-1.5">
+        <span className="text-zinc-500 uppercase tracking-widest text-[9px]">Screen Time:</span>{" "}
+        <span className={screentimeColor(data.screentime)}>{data.screentime}</span>
+        {data.screentimeDetail && (
+          <span className="text-zinc-500"> · {data.screentimeDetail}</span>
+        )}
+      </p>
       {data.manualAsks.length > 0 && (
         <div className="border-t border-[#222] pt-2">
           <p className="text-zinc-500 uppercase tracking-widest text-[9px] mb-1">
@@ -162,6 +171,17 @@ function whoopColor(s: SyncResponse["whoop"]): string {
       return "text-green-400";
     case "not_connected":
       return "text-amber-400";
+    case "not_configured":
+      return "text-amber-400";
+    case "error":
+      return "text-red-400";
+  }
+}
+
+function screentimeColor(s: SyncResponse["screentime"]): string {
+  switch (s) {
+    case "queued":
+      return "text-green-400";
     case "not_configured":
       return "text-amber-400";
     case "error":
