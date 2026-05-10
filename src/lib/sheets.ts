@@ -2685,10 +2685,14 @@ export async function getMostRecentAllowedOrgasm(): Promise<OrgasmLogRow | null>
 export async function appendOrgasmLog(input: {
   type: OrgasmType;
   note?: string;
+  /** YYYY-MM-DD override (Sydney). Defaults to today. Used for backdating. */
+  date?: string;
+  /** HH:MM override (Sydney). Defaults to now. Used for backdating. */
+  time?: string;
 }): Promise<{ date: string; daysSincePrevious: number | null }> {
   await ensureTab("Orgasm Log");
-  const date = todaySydneyISO();
-  const time = nowSydneyTimeHHMM();
+  const date = input.date || todaySydneyISO();
+  const time = input.time || nowSydneyTimeHHMM();
   const previous = await getMostRecentOrgasm();
   const daysSince = previous ? daysBetween(previous.date, date) : null;
   const client = sheetsClient();
