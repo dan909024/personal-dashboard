@@ -1519,6 +1519,54 @@ export const getHarleyBalance = unstable_cache(
   { revalidate: 60 }
 );
 
+// ---------- Worship Totals (lifetime tracker) ----------
+//
+// Aggregate of devotion-to-Goddess metrics: total $ given (USDT +
+// USDC, both 1:1 USD), lifetime edges, lifetime worship minutes.
+// $2800 baseline covers payments made before the dashboard started
+// tracking — adjust here if a new pre-dashboard amount surfaces.
+
+export const WORSHIP_BASELINE_USD = 2800;
+
+export type WorshipTotals = {
+  moneyGivenUsd: number;
+  totalEdges: number;
+  worshipMinutes: number;
+};
+
+export const getWorshipTotals = unstable_cache(
+  async (): Promise<WorshipTotals> => {
+    if (!isConfigured()) {
+      return {
+        moneyGivenUsd: WORSHIP_BASELINE_USD,
+        totalEdges: 0,
+        worshipMinutes: 0,
+      };
+    }
+    // Lifetime windows: payments are read with a huge days arg so the
+    // existing date-cutoff logic is effectively a no-op; edges and
+    // worship come from full-tab reads.
+    const [payments, edgeRows, worshipRows] = await Promise.all([
+      getRecentHarleyPayments(36500),
+      readTab("Edge Log"),
+      readTab("Worship Log"),
+    ]);
+    const paymentsUsd = payments.reduce((s, p) => s + p.amount, 0);
+    const totalEdges = edgeRows ? Math.max(0, edgeRows.length - 1) : 0; // -1 for header
+    const worshipMinutes = parseWorshipRows(worshipRows).reduce(
+      (s, w) => s + w.minutes,
+      0
+    );
+    return {
+      moneyGivenUsd: WORSHIP_BASELINE_USD + paymentsUsd,
+      totalEdges,
+      worshipMinutes,
+    };
+  },
+  ["dashboard:worship-totals"],
+  { revalidate: 60 }
+);
+
 /**
  * Idempotent monthly-fine appender. Skips if a Punishment row with
  * Reason="Monthly fee — <Month> <Year>" already exists for the
