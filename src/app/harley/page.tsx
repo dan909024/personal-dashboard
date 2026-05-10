@@ -21,7 +21,9 @@ import {
 import {
   getHarleyMeter,
   getHarleyMeterDetail,
+  getStrainWeekProgress,
   type HarleyRuleStatus,
+  type StrainWeekProgress,
 } from "@/lib/harley-meter";
 import {
   EDGES_DAILY_TARGET_KEY,
@@ -66,6 +68,7 @@ export default async function HarleyAdminPage() {
     fineAmounts,
     worshipTargetRaw,
     edgesTargetRaw,
+    strainWeek,
   ] = await Promise.all([
     readDenialEndDate(),
     getWeaknessSettings(),
@@ -81,6 +84,9 @@ export default async function HarleyAdminPage() {
     configured ? getFineAmounts() : Promise.resolve(DEFAULT_FINE_AMOUNTS),
     getSetting(WORSHIP_DAILY_TARGET_MIN_KEY),
     getSetting(EDGES_DAILY_TARGET_KEY),
+    configured
+      ? getStrainWeekProgress()
+      : Promise.resolve(null as StrainWeekProgress | null),
   ]);
 
   const hardMode =
@@ -113,6 +119,7 @@ export default async function HarleyAdminPage() {
       fineAmounts={fineAmounts}
       worshipTargetMin={worshipTargetMin}
       edgesTarget={edgesTarget}
+      strainWeek={strainWeek}
     />
   );
 }

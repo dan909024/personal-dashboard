@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { HARLEY_RULES, type HarleyRuleId } from "@/lib/harley-rules";
 import type { GoddessAuditEntry, PunishmentWithRow } from "@/lib/sheets";
-import type { HarleyRuleStatus } from "@/lib/harley-meter";
+import type { HarleyRuleStatus, StrainWeekProgress } from "@/lib/harley-meter";
 import type { FineAmounts } from "@/lib/rule-eval";
 import {
   addCalendarTaskAction,
@@ -59,6 +59,7 @@ export function HarleyForm({
   fineAmounts,
   worshipTargetMin,
   edgesTarget,
+  strainWeek,
 }: {
   endDate: string | null;
   allowed: "yes" | "no";
@@ -73,6 +74,7 @@ export function HarleyForm({
   fineAmounts: FineAmounts;
   worshipTargetMin: number;
   edgesTarget: number;
+  strainWeek: StrainWeekProgress | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -524,6 +526,9 @@ export function HarleyForm({
             </ul>
           </div>
         )}
+
+        {/* Whoop strain target — calculator for the strain rule */}
+        {strainWeek && <StrainTargetSection week={strainWeek} />}
 
         {/* Fine schedule — per-rule penalty amounts */}
         <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
@@ -1073,6 +1078,121 @@ function WorshipTargetControl({
           ? "Off — set both this & fine $"
           : `Active · ${formatHm(minutes)} · $${fineAmount}/miss`}
       </p>
+    </div>
+  );
+}
+
+function StrainTargetSection({ week }: { week: StrainWeekProgress }) {
+  const dowLabels = ["M", "T", "W", "T", "F", "S", "S"];
+  const stillNeeded = Math.max(0, week.trainingDaysRequired - week.trainingDaysHit);
+  const targetMet = stillNeeded === 0;
+
+  let summary: React.ReactNode;
+  if (targetMet) {
+    summary = (
+      <span className="text-emerald-300">
+        Target met — {week.trainingDaysHit}/{week.trainingDaysRequired} training days
+        cleared ≥{week.target}.
+      </span>
+    );
+  } else {
+    summary = (
+      <>
+        <span className="text-zinc-300">{stillNeeded}</span> more training day
+        {stillNeeded === 1 ? "" : "s"} at{" "}
+        <span className="text-purple-200">strain ≥{week.target}</span> this week.{" "}
+        <span className="text-zinc-500">
+          {week.daysRemaining} day{week.daysRemaining === 1 ? "" : "s"} left.
+        </span>
+      </>
+    );
+  }
+
+  return (
+    <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
+      <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">
+        Whoop strain target
+      </p>
+      <p className="text-[11px] text-zinc-500 mb-3 italic">
+        Each training day (Whoop workout ≥30 min) must hit ≥{week.target}/{week.max}{" "}
+        strain. Drop below and the strain rule auto-fines that day.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3 mb-3 pb-3 border-b border-purple-900/40">
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-zinc-500">
+            Target / training day
+          </p>
+          <p className="font-mono text-lg font-semibold tabular-nums text-purple-200">
+            ≥{week.target}
+            <span className="text-zinc-600 text-sm">/{week.max}</span>
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-zinc-500">
+            Training days hit
+          </p>
+          <p
+            className={`font-mono text-lg font-semibold tabular-nums ${
+              targetMet ? "text-emerald-300" : "text-amber-300"
+            }`}
+          >
+            {week.trainingDaysHit}
+            <span className="text-zinc-600">/{week.trainingDaysRequired}</span>
+          </p>
+        </div>
+      </div>
+
+      <ul className="grid grid-cols-7 gap-1 mb-3">
+        {week.byDay.map((d) => {
+          let cellClass = "border-zinc-800 text-zinc-600";
+          let valueText: string;
+          if (d.isFuture) {
+            cellClass = "border-purple-950/40 text-zinc-600";
+            valueText = "·";
+          } else if (d.hitTarget === true) {
+            cellClass = "border-emerald-700 bg-emerald-950/40 text-emerald-300";
+            valueText = typeof d.strain === "number" ? d.strain.toFixed(1) : "✓";
+          } else if (d.hitTarget === false) {
+            cellClass = "border-rose-700 bg-rose-950/40 text-rose-300";
+            valueText = typeof d.strain === "number" ? d.strain.toFixed(1) : "✗";
+          } else if (d.isTrainingDay) {
+            cellClass = "border-amber-700 bg-amber-950/40 text-amber-300";
+            valueText = "?";
+          } else {
+            valueText =
+              typeof d.strain === "number" ? d.strain.toFixed(1) : "—";
+          }
+          return (
+            <li
+              key={d.date}
+              className={`border text-center py-1 ${cellClass}`}
+              title={`${d.date}${d.isTrainingDay ? " · training day" : ""}${
+                typeof d.strain === "number" ? ` · strain ${d.strain.toFixed(1)}` : ""
+              }`}
+            >
+              <p className="text-[9px] uppercase tracking-widest">{dowLabels[d.dow]}</p>
+              <p className="font-mono text-[11px] font-semibold tabular-nums">
+                {valueText}
+              </p>
+              {d.isToday && (
+                <p className="text-[8px] uppercase tracking-widest text-purple-300">
+                  today
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+
+      <p className="text-[11px] leading-relaxed">{summary}</p>
+      {week.trainingDaysMissed > 0 && (
+        <p className="text-[10px] text-rose-400 mt-1">
+          {week.trainingDaysMissed} training day
+          {week.trainingDaysMissed === 1 ? "" : "s"} below {week.target} this week —
+          auto-fined.
+        </p>
+      )}
     </div>
   );
 }

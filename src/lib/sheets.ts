@@ -1875,6 +1875,40 @@ export async function countWhoopWorkoutsInRange(
   return count;
 }
 
+/**
+ * All Whoop workouts in [startISO, endISO] inclusive, with the columns
+ * the strain rule cares about (date, durationMin, strain). Used to
+ * detect "training days" — days with a workout ≥30 min — for the
+ * strain-on-training-days rule and the strain target calculator.
+ */
+export async function getWhoopWorkoutsInRange(
+  startISO: string,
+  endISO: string
+): Promise<{ date: string; durationMin: number; strain: number | null }[]> {
+  if (!isConfigured()) return [];
+  const rows = await readTab("Whoop Workouts");
+  if (!rows || rows.length < 2) return [];
+  const out: { date: string; durationMin: number; strain: number | null }[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const d = normalizeDate(r[0] as string | number | undefined);
+    if (!d) continue;
+    if (d < startISO || d > endISO) continue;
+    const strainRaw = r[3];
+    const strain =
+      strainRaw === "" || strainRaw === undefined || strainRaw === null
+        ? null
+        : Number(strainRaw);
+    out.push({
+      date: d,
+      durationMin: Number(r[4]) || 0,
+      strain: typeof strain === "number" && Number.isFinite(strain) ? strain : null,
+    });
+  }
+  return out;
+}
+
 // ---------- Apple Health ----------
 //
 // Fed by /api/health/ingest, posted to from an iOS Shortcut once a day
