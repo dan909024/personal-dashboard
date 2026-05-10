@@ -301,11 +301,12 @@ export default async function Dashboard({
   // Background swap based on Settings.orgasm_allowed. Falls back to coach.jpg
   // when the Sheet isn't configured yet so first-time setup still has a visual.
   const allowed = weakness?.orgasmAllowed === "yes";
-  const backgroundImage = !configured
-    ? "url('/coach.jpg')"
+  const backgroundSrc = !configured
+    ? "/coach.jpg"
     : allowed
-    ? "url('/backgrounds/allowed.jpg')"
-    : "url('/backgrounds/denied.jpg')";
+    ? "/backgrounds/allowed.jpg"
+    : "/backgrounds/denied.jpg";
+  const backgroundImage = `url('${backgroundSrc}')`;
   // Brand overlays — rose-bloom when allowed, deep cobalt when denied,
   // warm bloom on first-run setup. Lower opacity than before so Harley
   // shows through; vignette below restores tile contrast.
@@ -590,7 +591,7 @@ export default async function Dashboard({
 
         {/* Peek at Goddess' feet — curtain that splits open to reveal the page background photo */}
         <div className="px-4 pb-4">
-          <GoddessFeetPanel />
+          <GoddessFeetPanel imageSrc={backgroundSrc} />
         </div>
 
         {/* Proof Drops embed */}
