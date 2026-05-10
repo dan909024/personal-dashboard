@@ -9,6 +9,7 @@ import {
   appendPunishment,
   appendSelfHelpLog,
   appendWorshipLog,
+  setDenialEndDate,
   setSetting,
   type OrgasmType,
 } from "@/lib/sheets";
@@ -17,6 +18,45 @@ import { sendHarleyTelegram } from "@/lib/telegram";
 import { getDashboardWeakness } from "@/lib/weakness";
 
 const EDGE_TELEGRAM_THRESHOLD = 5;
+const DENIAL_RESET_DAYS = 30;
+
+// Format a UTC instant as a Sydney-offset ISO string, e.g.
+// "2026-05-09T17:00:00+10:00". Picks the offset valid for that exact
+// moment so AEST↔AEDT boundaries are handled.
+function formatSydneyOffsetISO(d: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  const hour = get("hour") === "24" ? "00" : get("hour");
+  const datePart = `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}:${get("second")}`;
+  const tzParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Australia/Sydney",
+    timeZoneName: "longOffset",
+  }).formatToParts(d);
+  const tz = tzParts.find((p) => p.type === "timeZoneName")?.value ?? "GMT+10:00";
+  return `${datePart}${tz.replace("GMT", "")}`;
+}
+
+// Convert a Sydney wall-clock {date, time} pair to a UTC Date instant,
+// honouring DST for that exact moment. Returns now if no backdate.
+function slipMomentUtc(backdate: { date: string; time: string } | undefined): Date {
+  if (!backdate) return new Date();
+  // Two-step: parse with +10:00 to get an approximate UTC moment,
+  // then re-derive the actual Sydney offset for that moment, then
+  // re-parse with the correct offset. The two-step is needed because
+  // a backdate near a DST boundary could otherwise be off by an hour.
+  const approx = new Date(Date.parse(`${backdate.date}T${backdate.time}:00+10:00`));
+  const tzParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Australia/Sydney",
+    timeZoneName: "longOffset",
+  }).formatToParts(approx);
+  const tz = (tzParts.find((p) => p.type === "timeZoneName")?.value ?? "GMT+10:00").replace("GMT", "");
+  return new Date(Date.parse(`${backdate.date}T${backdate.time}:00${tz}`));
+}
 
 export async function setOrgasmAllowedAction(
   value: "yes" | "no"
@@ -61,6 +101,7 @@ export async function logOrgasmAction(
     // Punishments tab. ruleId="slip" so the OWED HARLEY tooltip shows
     // the rule provenance instead of "Manual fine".
     let finedAmount = 0;
+    let denialResetTo: string | null = null;
     if (type === "lapsed") {
       try {
         await appendPunishment({
@@ -80,6 +121,24 @@ export async function logOrgasmAction(
           (fineErr as Error).message
         );
       }
+
+      // Reset the 30-day denial countdown. denial_started_at = slip
+      // moment; denial_end_date = slip moment + 30 days. Both stamped
+      // with Sydney offset so the DenialClock parses correctly.
+      try {
+        const slipUtc = slipMomentUtc(backdate);
+        const endUtc = new Date(slipUtc.getTime() + DENIAL_RESET_DAYS * 86_400_000);
+        const slipIso = formatSydneyOffsetISO(slipUtc);
+        const endIso = formatSydneyOffsetISO(endUtc);
+        await setDenialEndDate(endIso);
+        await setSetting("denial_started_at", slipIso, "auto (slip button)");
+        denialResetTo = endIso;
+      } catch (denialErr) {
+        console.error(
+          "[logOrgasmAction] denial reset failed:",
+          (denialErr as Error).message
+        );
+      }
     }
 
     // Pull the freshest dashboard state so the message reflects post-write reality.
@@ -95,6 +154,7 @@ export async function logOrgasmAction(
       `Weakness score: ${dash.weaknessScore}`,
     ];
     if (finedAmount > 0) lines.push(`Auto-fine: $${finedAmount} → Punishments`);
+    if (denialResetTo) lines.push(`Denial timer reset: ${DENIAL_RESET_DAYS}d → ${denialResetTo}`);
     if (note) lines.push(`Note: ${note}`);
     await sendHarleyTelegram(lines.join("\n"));
     revalidatePath("/");
