@@ -294,67 +294,79 @@ export default async function Dashboard({
     : allowed
     ? "url('/backgrounds/allowed.jpg')"
     : "url('/backgrounds/denied.jpg')";
-  // Warm rose overlay when allowed, cool slate when denied. Lower opacity than
-  // before so Harley actually shows through; vignette below restores tile contrast.
+  // Brand overlays — rose-bloom when allowed, deep cobalt when denied,
+  // warm bloom on first-run setup. Lower opacity than before so Harley
+  // shows through; vignette below restores tile contrast.
   const overlayClass = !configured
-    ? "bg-black/35"
+    ? "bg-bloom-900/30"
     : allowed
-    ? "bg-rose-950/30"
-    : "bg-slate-950/40";
+    ? "bg-bloom-800/30"
+    : "bg-coach-900/45";
 
   return (
     <div
-      className="min-h-screen text-white relative bg-[#0a0a0a] bg-fixed bg-center bg-cover"
+      className="min-h-screen text-ivory-50 relative bg-iron-vignette bg-fixed bg-center bg-cover"
       style={{ backgroundImage }}
     >
       <div className={`absolute inset-0 ${overlayClass} pointer-events-none`} />
       {/* Radial vignette: clearer in the center (where Harley's face sits),
-          darker at the edges so tile text stays legible. */}
+          darker at the edges so tile text stays legible. Cobalt-tinted
+          shadow instead of pure black for a wrought-iron feel. */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(ellipse at center, transparent 0%, transparent 35%, rgba(0,0,0,0.55) 100%)",
+            "radial-gradient(ellipse at center, transparent 0%, transparent 35%, rgba(13,33,72,0.6) 100%)",
         }}
       />
 
       <div className="relative z-10">
         {/* Setup banner if env not configured */}
         {!configured && (
-          <div className="w-full bg-amber-900/80 backdrop-blur-sm border-b border-amber-700 px-4 py-2 text-xs text-amber-100">
-            <span className="font-bold">SETUP NEEDED:</span> set
-            {" "}<code className="bg-black/30 px-1">GOOGLE_SERVICE_ACCOUNT_JSON</code>,
-            {" "}<code className="bg-black/30 px-1">SHEET_ID</code>, and
-            {" "}<code className="bg-black/30 px-1">DRIVE_FOLDER_ID</code> in Vercel env, then
+          <div className="w-full bg-ivory-400/15 backdrop-blur-sm border-b border-ivory-400/40 px-4 py-2 text-xs text-ivory-100">
+            <span className="font-bold tracking-wide">SETUP NEEDED:</span> set
+            {" "}<code className="bg-ink-deep/60 px-1">GOOGLE_SERVICE_ACCOUNT_JSON</code>,
+            {" "}<code className="bg-ink-deep/60 px-1">SHEET_ID</code>, and
+            {" "}<code className="bg-ink-deep/60 px-1">DRIVE_FOLDER_ID</code> in Vercel env, then
             redeploy. Showing placeholder data until then.
           </div>
         )}
 
         {/* Whoop OAuth flash messages */}
         {params.whoop === "connected" && (
-          <div className="w-full bg-emerald-900/80 backdrop-blur-sm border-b border-emerald-700 px-4 py-2 text-xs text-emerald-100">
-            <span className="font-bold">CONNECTED TO WHOOP ✅</span> &middot; First sync runs at the next cron tick (08:00 AEST) — or hit the sync endpoint manually.
+          <div className="w-full bg-sage-900/80 backdrop-blur-sm border-b border-sage-700 px-4 py-2 text-xs text-sage-50">
+            <span className="font-bold">CONNECTED TO WHOOP ✓</span> &middot; First sync runs at the next cron tick (08:00 AEST) — or hit the sync endpoint manually.
           </div>
         )}
         {params.whoop_error && (
-          <div className="w-full bg-red-900/80 backdrop-blur-sm border-b border-red-700 px-4 py-2 text-xs text-red-100">
+          <div className="w-full bg-bloom-900/80 backdrop-blur-sm border-b border-bloom-700 px-4 py-2 text-xs text-bloom-50">
             <span className="font-bold">WHOOP ERROR:</span> {params.whoop_error}
           </div>
         )}
 
         {/* Top strip */}
-        <div className="w-full bg-black/60 backdrop-blur-sm border-b border-[#222] px-4 py-3">
+        <div className="w-full bg-ink-deep/80 backdrop-blur-sm border-b border-iron-100/70 px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <p className="text-sm font-semibold tracking-widest text-white uppercase">
-                WEEK {week} &middot; {review.label} &middot;{" "}
-                <span className="text-red-400">
-                  OWED HARLEY: ${configured ? owedHarley : 135}
+            <div className="flex items-center gap-3 min-w-0 flex-wrap">
+              {/* Wordmark — country-club coach badge */}
+              <div className="flex items-center gap-2 pr-3 border-r border-iron-100/60">
+                <span className="brand-serif text-xl font-semibold text-ivory tracking-tight leading-none">
+                  Harley
+                </span>
+                <span className="brand-serif italic text-[11px] text-bloom-300 leading-none">
+                  &amp; Iron
+                </span>
+              </div>
+              <p className="text-[11px] font-semibold tracking-[0.22em] text-ivory-300/80 uppercase">
+                Week {week} <span className="text-iron-50">·</span> {review.label}{" "}
+                <span className="text-iron-50">·</span>{" "}
+                <span className="text-bloom-300">
+                  Owed: ${configured ? owedHarley : 135}
                 </span>
               </p>
               <Link
                 href="/harley"
-                className="px-2 py-1 border border-purple-700 bg-purple-950/40 text-purple-200 text-[10px] font-bold uppercase tracking-widest hover:border-purple-400 hover:bg-purple-900/60 hover:text-white transition-colors whitespace-nowrap shrink-0"
+                className="px-2 py-1 border border-bloom-700 bg-bloom-900/40 text-bloom-200 text-[10px] font-bold uppercase tracking-[0.22em] hover:border-bloom-300 hover:bg-bloom-800/60 hover:text-ivory transition-colors whitespace-nowrap shrink-0"
               >
                 Goddess control room →
               </Link>
@@ -362,7 +374,7 @@ export default async function Dashboard({
             <div className="flex items-center gap-3 shrink-0">
               <SystemHealthPill health={sysHealth} configured={configured} />
               <SyncButton />
-              <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
+              <p className="text-[10px] text-ivory-400/70 uppercase tracking-widest">
                 Updated {lastUpdated}
               </p>
             </div>
@@ -374,9 +386,13 @@ export default async function Dashboard({
             ).map((label, i) => (
               <label
                 key={`${i}-${label}`}
-                className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer"
+                className="flex items-center gap-2 text-sm text-ivory-100/80 cursor-pointer hover:text-ivory transition-colors"
               >
-                <input type="checkbox" className="accent-green-500 w-4 h-4" />
+                <input
+                  type="checkbox"
+                  className="w-4 h-4"
+                  style={{ accentColor: "var(--color-sage)" }}
+                />
                 {label}
               </label>
             ))}
@@ -393,7 +409,7 @@ export default async function Dashboard({
           )}
 
           {/* Row 1 */}
-          <Tile title="WHOOP">
+          <Tile title="Whoop">
             {whoop && whoop.recovery ? (
               <>
                 <Stat
@@ -406,7 +422,7 @@ export default async function Dashboard({
               </>
             ) : !configured ? (
               <>
-                <Stat label="Recovery" value="72%" color="text-amber-400" />
+                <Stat label="Recovery" value="72%" color="text-ivory-300" />
                 <Stat label="Strain" value="14" />
                 <Stat label="Sleep" value="7h 12m" />
               </>
@@ -417,14 +433,14 @@ export default async function Dashboard({
             )}
           </Tile>
 
-          <Tile title="ROUTINE">
+          <Tile title="Routine">
             {whoop && (whoop.wakeTime || whoop.bedTime) ? (
               <>
                 <StatRow
                   label="Wake"
                   value={whoop.wakeTime || "—"}
                   badge={wakeBadge(whoop.wakeTime)}
-                  badgeColor={wakeBadge(whoop.wakeTime) === "✅" ? "text-green-400" : "text-amber-400"}
+                  badgeColor={wakeBadge(whoop.wakeTime) === "✅" ? "text-sage-300" : "text-ivory-300"}
                   badgeTooltip={wakeTooltip(whoop.wakeTime)}
                 />
                 <StatRow label="Bed" value={whoop.bedTime || "—"} />
@@ -435,9 +451,9 @@ export default async function Dashboard({
               </>
             ) : !configured ? (
               <>
-                <StatRow label="Wake" value="06:08" badge="-$10" badgeColor="text-red-400" />
-                <StatRow label="Bed" value="22:45" badge="-$15" badgeColor="text-red-400" />
-                <StatRow label="Steps" value="8,420" badge="-$15" badgeColor="text-red-400" />
+                <StatRow label="Wake" value="06:08" badge="-$10" badgeColor="text-bloom-300" />
+                <StatRow label="Bed" value="22:45" badge="-$15" badgeColor="text-bloom-300" />
+                <StatRow label="Steps" value="8,420" badge="-$15" badgeColor="text-bloom-300" />
               </>
             ) : !whoopConnected ? (
               <ConnectWhoopCta />
@@ -446,12 +462,12 @@ export default async function Dashboard({
             )}
           </Tile>
 
-          <Tile title="WRITING">
+          <Tile title="Writing">
             <WritingTile configured={configured} summary={writingSummary} />
           </Tile>
 
           {/* Row 2 */}
-          <Tile title="WORKOUTS THIS WEEK">
+          <Tile title="Workouts this week">
             <GymTileBody
               workouts={whoopWorkouts}
               whoopConnected={whoopConnected}
@@ -459,17 +475,17 @@ export default async function Dashboard({
             />
           </Tile>
 
-          <Tile title="NUTRITION">
+          <Tile title="Nutrition">
             <NutritionTile data={nutrition} configured={configured} />
           </Tile>
 
           <Link
             href="/screentime"
-            className="block border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4 hover:border-[#333] transition-colors"
+            className="block border border-iron-100/70 bg-iron-700/80 backdrop-blur-sm p-4 hover:border-coach-600/70 transition-colors"
           >
-            <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3 flex items-center justify-between">
-              SCREENTIME
-              <span className="text-zinc-600 normal-case tracking-normal">details →</span>
+            <p className="brand-serif text-[11px] font-semibold tracking-[0.22em] text-ivory-300/80 uppercase mb-3 flex items-center justify-between">
+              Screentime
+              <span className="text-coach-300 normal-case tracking-normal text-[10px] font-sans">details →</span>
             </p>
             <PhoneTile configured={configured} summary={phoneSummary} />
           </Link>
@@ -477,57 +493,57 @@ export default async function Dashboard({
           {/* Row 3 */}
           <Link
             href="/transactions"
-            className="block border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4 hover:border-[#333] transition-colors"
+            className="block border border-iron-100/70 bg-iron-700/80 backdrop-blur-sm p-4 hover:border-coach-600/70 transition-colors"
           >
-            <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3 flex items-center justify-between">
-              TRANSACTIONS
-              <span className="text-zinc-600 normal-case tracking-normal">details →</span>
+            <p className="brand-serif text-[11px] font-semibold tracking-[0.22em] text-ivory-300/80 uppercase mb-3 flex items-center justify-between">
+              Transactions
+              <span className="text-coach-300 normal-case tracking-normal text-[10px] font-sans">details →</span>
             </p>
             <TransactionsTile configured={configured} data={transactions} />
           </Link>
 
-          <Tile title="OWED HARLEY">
+          <Tile title="Owed Harley">
             {configured && harleyBalance ? (
               <HarleyBalanceTile balance={harleyBalance} />
             ) : configured ? (
               <NoData />
             ) : (
               <>
-                <p className="text-3xl font-bold text-red-400 mb-2">$135</p>
-                <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">
+                <p className="text-3xl font-bold text-bloom-300 mb-2">$135</p>
+                <p className="text-[10px] text-ivory-400/70 uppercase tracking-widest mb-2">
                   $1,135 fines − $1,000 paid
                 </p>
-                <div className="space-y-1 text-xs text-zinc-400">
+                <div className="space-y-1 text-xs text-ivory-100/70">
                   <div className="flex justify-between">
                     <span>Monthly fee — May 2026</span>
-                    <span className="text-red-400">+$1,000</span>
+                    <span className="text-bloom-300">+$1,000</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Wed phone</span>
-                    <span className="text-red-400">+$45</span>
+                    <span className="text-bloom-300">+$45</span>
                   </div>
                   <div className="flex justify-between">
                     <span>USDT payment</span>
-                    <span className="text-green-400">−$1,000</span>
+                    <span className="text-sage-300">−$1,000</span>
                   </div>
                 </div>
               </>
             )}
           </Tile>
 
-          <Tile title="HARLEY METER">
+          <Tile title="Harley Meter">
             {(() => {
               const value = configured ? harley : 78;
               return (
                 <>
-                  <p className="text-5xl font-bold text-white mb-2">{value}%</p>
-                  <div className="w-full bg-[#222] h-2 mb-2">
+                  <p className="brand-serif text-5xl font-semibold text-ivory mb-2 tracking-tight">{value}%</p>
+                  <div className="w-full bg-iron-200 h-2 mb-2">
                     <div
-                      className="bg-green-500 h-2"
+                      className="bg-sage h-2 transition-all"
                       style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
                     />
                   </div>
-                  <p className="text-xs text-zinc-500 uppercase tracking-wider">
+                  <p className="text-xs text-ivory-400/70 uppercase tracking-wider">
                     {configured ? "wake / bed / gym / steps / water / tasks" : "14 of 18 tasks this week"}
                   </p>
                 </>
@@ -535,7 +551,7 @@ export default async function Dashboard({
             })()}
           </Tile>
 
-          <Tile title="WORSHIP TOTALS">
+          <Tile title="Worship totals">
             <WorshipTotalsTile configured={configured} totals={worshipTotals} />
           </Tile>
         </div>
@@ -561,9 +577,9 @@ export default async function Dashboard({
 
         {/* Proof Drops embed */}
         <div className="px-4 pb-4">
-          <div className="border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4">
-            <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
-              PROOF DROPS
+          <div className="border border-iron-100/70 bg-iron-700/80 backdrop-blur-sm p-4">
+            <p className="brand-serif text-[11px] font-semibold tracking-[0.22em] text-ivory-300/80 uppercase mb-3">
+              Proof Drops
             </p>
             {DRIVE_EMBED_URL ? (
               <iframe
@@ -573,11 +589,11 @@ export default async function Dashboard({
                 title="Proof folder"
               />
             ) : (
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-ivory-400/70">
                 Set <code>DRIVE_FOLDER_ID</code> to embed the folder.
               </p>
             )}
-            <p className="text-[10px] text-zinc-600 mt-2">
+            <p className="text-[10px] text-ivory-400/50 mt-2">
               Embed blank? The Drive folder must be set to{" "}
               <em>&ldquo;Anyone with the link can view&rdquo;</em>.
             </p>
@@ -601,10 +617,10 @@ export default async function Dashboard({
 // ---------- Helpers (UI) ----------
 
 function recoveryColor(score: number): string {
-  if (!Number.isFinite(score)) return "text-zinc-300";
-  if (score < 34) return "text-red-400";
-  if (score <= 66) return "text-amber-400";
-  return "text-green-400";
+  if (!Number.isFinite(score)) return "text-ivory-100";
+  if (score < 34) return "text-bloom-300";
+  if (score <= 66) return "text-ivory-300";
+  return "text-sage-300";
 }
 
 function wakeBadge(wake: string): string | undefined {
@@ -641,8 +657,8 @@ function fmtSleep(sleep: string): string {
 
 function Tile({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4">
-      <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
+    <div className="border border-iron-100/70 bg-iron-700/80 backdrop-blur-sm p-4 shadow-[0_1px_0_rgba(243,231,204,0.04)_inset]">
+      <p className="brand-serif text-[11px] font-semibold tracking-[0.22em] text-ivory-300/80 uppercase mb-3">
         {title}
       </p>
       {children}
@@ -654,7 +670,7 @@ function ConnectWhoopCta() {
   return (
     <a
       href="/api/whoop/connect"
-      className="inline-block mt-1 px-3 py-2 border border-emerald-700 bg-emerald-900/40 text-emerald-200 text-xs uppercase tracking-widest hover:border-emerald-500 hover:bg-emerald-800/60 transition-colors"
+      className="inline-block mt-1 px-3 py-2 border border-coach-600 bg-coach-900/40 text-coach-200 text-xs uppercase tracking-widest hover:border-coach-300 hover:bg-coach-800/60 transition-colors"
     >
       Connect Whoop →
     </a>
@@ -663,23 +679,23 @@ function ConnectWhoopCta() {
 
 function HarleyBalanceTile({ balance }: { balance: HarleyBalance }) {
   const owed = balance.owed;
-  const owedColor = owed > 0 ? "text-red-400" : owed < 0 ? "text-green-400" : "text-white";
+  const owedColor = owed > 0 ? "text-bloom-300" : owed < 0 ? "text-sage-300" : "text-ivory";
   const owedLabel = owed < 0 ? `Overpaid $${Math.abs(owed).toLocaleString("en-AU")}` : `$${owed.toLocaleString("en-AU")}`;
   return (
     <>
       <p className={`text-3xl font-bold mb-2 ${owedColor}`}>{owedLabel}</p>
-      <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">
+      <p className="text-[10px] text-ivory-400/70 uppercase tracking-widest mb-2">
         ${balance.finesTotal.toLocaleString("en-AU")} fines − $
         {balance.paidTotal.toLocaleString("en-AU")} paid
       </p>
       {balance.recentActivity.length > 0 ? (
-        <div className="space-y-1 text-xs text-zinc-400">
+        <div className="space-y-1 text-xs text-ivory-100/70">
           {balance.recentActivity.map((a, i) => (
             <HarleyActivityRow key={i} activity={a} />
           ))}
         </div>
       ) : (
-        <p className="text-xs text-zinc-500 italic">no activity yet</p>
+        <p className="text-xs text-ivory-400/60 italic">no activity yet</p>
       )}
     </>
   );
@@ -693,7 +709,7 @@ function HarleyActivityRow({ activity }: { activity: HarleyActivity }) {
     ? activity.reason || "Fine"
     : `${activity.currency || "USDT"} payment`;
   const tooltip = buildActivityTooltip(activity);
-  const amountClass = isFine ? "text-red-400" : "text-green-400";
+  const amountClass = isFine ? "text-bloom-300" : "text-sage-300";
   const sign = isFine ? "+" : "−";
   return (
     <div className="relative group flex justify-between gap-2 cursor-help" tabIndex={0}>
@@ -703,7 +719,7 @@ function HarleyActivityRow({ activity }: { activity: HarleyActivity }) {
       </span>
       <span
         role="tooltip"
-        className="pointer-events-none absolute right-0 top-full mt-2 z-20 w-64 border border-[#333] bg-[#0a0a0a] p-3 text-[11px] leading-relaxed text-zinc-300 shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity whitespace-pre-line text-left normal-case"
+        className="pointer-events-none absolute right-0 top-full mt-2 z-20 w-64 border border-iron-100 bg-ink-deep p-3 text-[11px] leading-relaxed text-ivory-100/80 shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity whitespace-pre-line text-left normal-case"
       >
         {tooltip}
       </span>
@@ -729,7 +745,7 @@ function buildActivityTooltip(a: HarleyActivity): string {
 }
 
 function NoData() {
-  return <p className="text-xs text-zinc-500 italic">no data yet</p>;
+  return <p className="text-xs text-ivory-400/60 italic">no data yet</p>;
 }
 
 function fmtMoney(n: number): string {
@@ -757,31 +773,31 @@ function WorshipTotalsTile({
   if (!configured) {
     return (
       <>
-        <p className="text-3xl font-bold text-rose-300 mb-2">$2,800</p>
-        <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
+        <p className="brand-serif text-3xl font-semibold text-bloom-300 mb-2">$2,800</p>
+        <p className="text-xs text-ivory-400/70 uppercase tracking-wider mb-1">
           Lifetime given
         </p>
-        <p className="text-xs text-zinc-400">0 edges · 0m worship</p>
+        <p className="text-xs text-ivory-100/70">0 edges · 0m worship</p>
       </>
     );
   }
   if (!totals) return <NoData />;
   return (
     <>
-      <p className="text-3xl font-bold text-rose-300 mb-2">
+      <p className="brand-serif text-3xl font-semibold text-bloom-300 mb-2">
         {fmtMoney(totals.moneyGivenUsd)}
       </p>
-      <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">
+      <p className="text-[10px] text-ivory-400/70 uppercase tracking-widest mb-2">
         Lifetime given
       </p>
-      <div className="space-y-0.5 text-xs text-zinc-400">
+      <div className="space-y-0.5 text-xs text-ivory-100/70">
         <div className="flex justify-between">
           <span>Total edges</span>
-          <span className="text-zinc-200 font-mono">{totals.totalEdges}</span>
+          <span className="text-ivory-50 font-mono">{totals.totalEdges}</span>
         </div>
         <div className="flex justify-between">
           <span>Worship time</span>
-          <span className="text-zinc-200 font-mono">
+          <span className="text-ivory-50 font-mono">
             {fmtWorshipDuration(totals.worshipMinutes)}
           </span>
         </div>
@@ -819,8 +835,8 @@ function GymTileBody({
   if (!configured) {
     return (
       <>
-        <p className="text-5xl font-bold text-white mb-2">4 / 7</p>
-        <p className="text-xs text-zinc-500">Latest: Run · 32m · strain 14.2</p>
+        <p className="brand-serif text-5xl font-semibold text-ivory mb-2 tracking-tight">4 / 7</p>
+        <p className="text-xs text-ivory-400/70">Latest: Run · 32m · strain 14.2</p>
       </>
     );
   }
@@ -830,18 +846,18 @@ function GymTileBody({
   const count = workouts?.weekWorkoutCount ?? 0;
   const latest = workouts?.latestWorkout;
   const countColor =
-    count >= 5 ? "text-green-400" : count >= 3 ? "text-amber-400" : "text-zinc-200";
+    count >= 5 ? "text-sage-300" : count >= 3 ? "text-ivory-300" : "text-ivory-100/70";
   return (
     <>
-      <p className={`text-5xl font-bold mb-2 ${countColor}`}>{count} / 7</p>
+      <p className={`brand-serif text-5xl font-semibold mb-2 tracking-tight ${countColor}`}>{count} / 7</p>
       {latest ? (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-ivory-400/70">
           Latest: {latest.sportName} ·{" "}
           {formatWorkoutDuration(latest.durationMin)}
           {typeof latest.strain === "number" && ` · strain ${latest.strain.toFixed(1)}`}
         </p>
       ) : (
-        <p className="text-xs text-zinc-500">no workouts logged this week</p>
+        <p className="text-xs text-ivory-400/70">no workouts logged this week</p>
       )}
     </>
   );
@@ -891,7 +907,7 @@ function NutritionTile({
         pct={data.waterMl / data.waterTargetMl}
       />
       {!data.hasToday && (
-        <p className="text-[10px] text-amber-400/80 mt-2">
+        <p className="text-[10px] text-ivory-300/80 mt-2 italic">
           showing {data.date} — no data for today yet
         </p>
       )}
@@ -915,22 +931,22 @@ function NutritionRow({
   const ratio = Math.max(0, Math.min(1, pct ?? 0));
   const barColor =
     ratio >= 0.95
-      ? "bg-green-500"
+      ? "bg-sage"
       : ratio >= 0.6
-      ? "bg-amber-400"
-      : "bg-zinc-500";
+      ? "bg-ivory-300"
+      : "bg-iron-50";
   return (
     <div className="mb-1.5 last:mb-0">
       <div className="flex items-baseline justify-between text-xs">
-        <span className="text-zinc-400 uppercase tracking-wider text-[10px]">
+        <span className="text-ivory-300/80 uppercase tracking-wider text-[10px]">
           {label}
         </span>
-        <span className="font-mono text-zinc-200">
+        <span className="font-mono text-ivory-50">
           {value}
-          <span className="text-zinc-500"> / {target} {unit}</span>
+          <span className="text-ivory-400/60"> / {target} {unit}</span>
         </span>
       </div>
-      <div className="w-full bg-[#1a1a1a] h-1 mt-1">
+      <div className="w-full bg-iron-200 h-1 mt-1">
         <div
           className={`${barColor} h-1 transition-all`}
           style={{ width: `${ratio * 100}%` }}
@@ -961,15 +977,15 @@ function TransactionsTile({
       <>
         <Stat label="Today" value="$52.10" />
         <Stat label="7d" value="$437.20" />
-        <p className="text-xs text-zinc-500 mt-2">Balance $2,180.55</p>
+        <p className="text-xs text-ivory-400/70 mt-2">Balance $2,180.55</p>
       </>
     );
   }
   if (!data || !data.hasAnyData) {
     return (
       <>
-        <p className="text-sm text-zinc-500">No Amex data yet</p>
-        <p className="text-[10px] text-zinc-600 uppercase tracking-widest mt-1">
+        <p className="text-sm text-ivory-400/70">No Amex data yet</p>
+        <p className="text-[10px] text-ivory-400/50 uppercase tracking-widest mt-1">
           Awaiting inbound emails
         </p>
       </>
@@ -980,18 +996,18 @@ function TransactionsTile({
     <>
       <div className="mb-2 flex items-baseline gap-3">
         <span>
-          <span className="text-[10px] text-zinc-500 uppercase tracking-wider">
+          <span className="text-[10px] text-ivory-400/70 uppercase tracking-wider">
             Today{" "}
           </span>
-          <span className="text-xl font-bold text-white">
+          <span className="text-xl font-bold text-ivory">
             {fmtAmount(data.todayChargeTotal)}
           </span>
         </span>
         <span>
-          <span className="text-[10px] text-zinc-500 uppercase tracking-wider">
+          <span className="text-[10px] text-ivory-400/70 uppercase tracking-wider">
             7d{" "}
           </span>
-          <span className="text-sm font-semibold text-zinc-300">
+          <span className="text-sm font-semibold text-ivory-100/80">
             {fmtAmount(data.sevenDayChargeTotal)}
           </span>
         </span>
@@ -1001,7 +1017,7 @@ function TransactionsTile({
           {recent.map((c) => (
             <div
               key={c.emailId}
-              className="flex items-center justify-between gap-2 text-xs text-zinc-300"
+              className="flex items-center justify-between gap-2 text-xs text-ivory-100/80"
             >
               <span className="truncate">{c.merchant || "(unknown)"}</span>
               <span className="font-mono shrink-0">
@@ -1012,9 +1028,9 @@ function TransactionsTile({
         </div>
       ) : null}
       {data.latestBalance ? (
-        <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
+        <p className="text-[10px] text-ivory-400/70 uppercase tracking-widest">
           Balance{" "}
-          <span className="text-zinc-300 normal-case tracking-normal">
+          <span className="text-ivory-100/80 normal-case tracking-normal">
             {fmtAmount(data.latestBalance.amount, data.latestBalance.currency)}
           </span>
         </p>
@@ -1033,20 +1049,20 @@ function WritingTile({
   if (!configured) {
     return (
       <>
-        <p className="text-5xl font-bold text-amber-400 mb-2">23m</p>
-        <p className="text-xs text-zinc-500">4 / 7 days · 2h 14m this week</p>
+        <p className="brand-serif text-5xl font-semibold text-ivory-300 mb-2 tracking-tight">23m</p>
+        <p className="text-xs text-ivory-400/70">4 / 7 days · 2h 14m this week</p>
       </>
     );
   }
   const today = summary.todayMinutes;
   const todayColor =
-    today >= 30 ? "text-green-400" : today >= 5 ? "text-amber-400" : "text-zinc-400";
+    today >= 30 ? "text-sage-300" : today >= 5 ? "text-ivory-300" : "text-ivory-100/70";
   return (
     <>
-      <p className={`text-5xl font-bold mb-2 ${todayColor}`}>
+      <p className={`brand-serif text-5xl font-semibold mb-2 tracking-tight ${todayColor}`}>
         {fmtPhoneMinutes(today)}
       </p>
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-ivory-400/70">
         {summary.daysWritten} / 7 days · {fmtPhoneMinutes(summary.weekMinutes)} this week
       </p>
     </>
@@ -1063,9 +1079,9 @@ function PhoneTile({
   if (!configured) {
     return (
       <>
-        <StatRow label="YouTube" value="32m / 45m" badge="✓" badgeColor="text-green-400" />
-        <StatRow label="Instagram" value="8m / 10m" badge="✓" badgeColor="text-green-400" />
-        <StatRow label="Dating" value="0m / 0m" badge="✓" badgeColor="text-green-400" />
+        <StatRow label="YouTube" value="32m / 45m" badge="✓" badgeColor="text-sage-300" />
+        <StatRow label="Instagram" value="8m / 10m" badge="✓" badgeColor="text-sage-300" />
+        <StatRow label="Dating" value="0m / 0m" badge="✓" badgeColor="text-sage-300" />
       </>
     );
   }
@@ -1077,10 +1093,10 @@ function PhoneTile({
           label={b.label}
           value={`${fmtPhoneMinutes(b.minutes)} / ${fmtPhoneMinutes(b.targetMinutes)}`}
           badge={b.obeyed ? "✓" : "✗"}
-          badgeColor={b.obeyed ? "text-green-400" : "text-red-400"}
+          badgeColor={b.obeyed ? "text-sage-300" : "text-bloom-300"}
         />
       ))}
-      <p className="text-xs text-zinc-500 mt-2">
+      <p className="text-xs text-ivory-400/70 mt-2">
         today {fmtPhoneMinutes(summary.todayTotal)}
         {summary.sevenDayTotal > 0
           ? ` · 7d ${fmtPhoneMinutes(summary.sevenDayTotal)}`
@@ -1093,7 +1109,7 @@ function PhoneTile({
 function Stat({
   label,
   value,
-  color = "text-white",
+  color = "text-ivory",
 }: {
   label: string;
   value: string;
@@ -1101,7 +1117,7 @@ function Stat({
 }) {
   return (
     <div className="mb-1">
-      <span className="text-[10px] text-zinc-500 uppercase tracking-wider">
+      <span className="text-[10px] text-ivory-400/70 uppercase tracking-wider">
         {label}{" "}
       </span>
       <span className={`text-xl font-bold ${color}`}>{value}</span>
@@ -1113,8 +1129,8 @@ function StatRow({
   label,
   value,
   badge,
-  badgeColor = "text-green-400",
-  valueColor = "text-white",
+  badgeColor = "text-sage-300",
+  valueColor = "text-ivory",
   badgeTooltip,
 }: {
   label: string;
@@ -1126,7 +1142,7 @@ function StatRow({
 }) {
   return (
     <div className="flex items-center justify-between py-0.5">
-      <span className="text-[10px] text-zinc-500 uppercase tracking-wider">{label}</span>
+      <span className="text-[10px] text-ivory-400/70 uppercase tracking-wider">{label}</span>
       <span className="flex items-center gap-2">
         <span className={`text-sm font-semibold ${valueColor}`}>{value}</span>
         {badge &&
@@ -1138,7 +1154,7 @@ function StatRow({
               <span
                 role="tooltip"
                 id="badge-tip"
-                className="pointer-events-none absolute right-0 top-full mt-2 z-20 w-64 border border-[#333] bg-[#0a0a0a] p-3 text-[11px] leading-relaxed text-zinc-300 shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+                className="pointer-events-none absolute right-0 top-full mt-2 z-20 w-64 border border-iron-100 bg-ink-deep p-3 text-[11px] leading-relaxed text-ivory-100/80 shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
               >
                 {badgeTooltip}
               </span>
@@ -1157,7 +1173,7 @@ function BottomLink({ label, href }: { label: string; href: string }) {
     <a
       href={href}
       {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-      className="px-4 py-2 border border-[#333] text-xs text-zinc-400 uppercase tracking-widest hover:border-zinc-500 hover:text-white transition-colors"
+      className="px-4 py-2 border border-iron-100 bg-iron-700/40 text-xs text-ivory-300/80 uppercase tracking-[0.22em] hover:border-coach-500 hover:text-ivory hover:bg-coach-900/40 transition-colors"
     >
       {label}
     </a>
@@ -1175,34 +1191,34 @@ function SystemHealthPill({
 }) {
   if (!configured) {
     return (
-      <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-zinc-500">
-        <span className="w-2 h-2 rounded-full bg-zinc-500 inline-block" />
+      <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-ivory-400/70">
+        <span className="w-2 h-2 rounded-full bg-iron-50 inline-block" />
         unconfigured
       </span>
     );
   }
   if (!health) {
     return (
-      <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-zinc-500">
-        <span className="w-2 h-2 rounded-full bg-zinc-500 inline-block" />
+      <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-ivory-400/70">
+        <span className="w-2 h-2 rounded-full bg-iron-50 inline-block" />
         no heartbeat yet
       </span>
     );
   }
   const ageMin = ageMinutes(health.timestamp);
   const stale = ageMin === null || ageMin > 15;
-  let dotColor = "bg-green-500";
+  let dotColor = "bg-sage";
   let label = "healthy";
   if (!health.heartbeatOk || stale) {
-    dotColor = "bg-red-500";
+    dotColor = "bg-bloom";
     label = !health.heartbeatOk ? "broken" : "stale";
   } else if (health.recentSleepEdits > 0) {
-    dotColor = "bg-amber-400";
+    dotColor = "bg-ivory-300";
     label = `${health.recentSleepEdits} edit${health.recentSleepEdits === 1 ? "" : "s"}`;
   }
   return (
     <span
-      className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-zinc-300"
+      className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-ivory-100/80"
       title={`heartbeat ${ageMin ?? "?"}min ago | whoop ${health.whoopOk ? "ok" : "stale"} | sleep edits 24h: ${health.recentSleepEdits}`}
     >
       <span className={`w-2 h-2 rounded-full ${dotColor} inline-block`} />
@@ -1235,31 +1251,31 @@ function TamperLog({
     : [];
   const tampered = recent.length > 0;
 
-  // Container colour shifts: clean = subtle dark, tampered = red border + tint.
+  // Container colour shifts: clean = subtle iron, tampered = bloom-tinted alarm.
   const containerClass = !configured
-    ? "border border-[#222] bg-[#0f0f0f]/85 backdrop-blur-sm p-4"
+    ? "border border-iron-100/70 bg-iron-700/80 backdrop-blur-sm p-4"
     : tampered
-    ? "border border-red-700 bg-red-950/40 backdrop-blur-sm p-4"
-    : "border border-emerald-900 bg-[#0f0f0f]/85 backdrop-blur-sm p-4";
+    ? "border border-bloom-700 bg-bloom-900/30 backdrop-blur-sm p-4"
+    : "border border-sage-700/60 bg-iron-700/80 backdrop-blur-sm p-4";
 
-  const titleColor = tampered ? "text-red-300" : "text-zinc-500";
+  const titleColor = tampered ? "text-bloom-300" : "text-ivory-300/80";
 
   return (
     <div className={containerClass}>
       <p
-        className={`text-[10px] font-bold tracking-widest uppercase mb-3 ${titleColor}`}
+        className={`brand-serif text-[11px] font-semibold tracking-[0.22em] uppercase mb-3 ${titleColor}`}
       >
-        TAMPER LOG
+        Tamper Log
       </p>
       {!configured ? (
-        <p className="text-xs text-zinc-500 italic">unconfigured</p>
+        <p className="text-xs text-ivory-400/60 italic">unconfigured</p>
       ) : !tampered ? (
-        <p className="text-xs text-emerald-400">
-          Clean — stats untouched for 7 days ✅
+        <p className="text-xs text-sage-300">
+          Clean — stats untouched for 7 days ✓
         </p>
       ) : (
         <>
-          <p className="text-xs text-red-300 font-bold mb-2 uppercase tracking-wider">
+          <p className="text-xs text-bloom-300 font-bold mb-2 uppercase tracking-wider">
             ⚠ {recent.length} edit{recent.length === 1 ? "" : "s"} detected in
             last 7 days
           </p>
@@ -1267,21 +1283,21 @@ function TamperLog({
             {recent.map((e, i) => (
               <div
                 key={`${e.detectedAt}-${i}`}
-                className="flex flex-wrap items-center gap-2 text-xs text-zinc-200"
+                className="flex flex-wrap items-center gap-2 text-xs text-ivory-100/80"
               >
-                <span className="text-red-400 shrink-0">⚠</span>
-                <span className="text-zinc-400 shrink-0 tabular-nums">
+                <span className="text-bloom-300 shrink-0">⚠</span>
+                <span className="text-ivory-400/70 shrink-0 tabular-nums">
                   {fmtDetectedAt(e.detectedAt)}
                 </span>
-                <span className="text-zinc-300 uppercase tracking-wider text-[10px] shrink-0">
+                <span className="text-ivory-100/80 uppercase tracking-wider text-[10px] shrink-0">
                   {e.fieldChanged}
                 </span>
                 <span className="font-mono">
-                  <span className="text-zinc-400 line-through">
+                  <span className="text-ivory-400/60 line-through">
                     {e.oldValue || "—"}
                   </span>
-                  <span className="text-zinc-500"> → </span>
-                  <span className="text-red-200">{e.newValue || "—"}</span>
+                  <span className="text-ivory-400/40"> → </span>
+                  <span className="text-bloom-200">{e.newValue || "—"}</span>
                 </span>
               </div>
             ))}

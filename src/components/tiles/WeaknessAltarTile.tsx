@@ -19,11 +19,11 @@ import { WeaknessChart } from "./WeaknessChart";
 const ALTAR_TAGLINE = "One brutal day can break months of resistance.";
 
 function scoreColor(score: number): string {
-  if (score < 400) return "text-red-400";
-  if (score < 800) return "text-orange-400";
-  if (score < 1200) return "text-yellow-300";
-  if (score < 1600) return "text-cyan-400";
-  return "text-purple-400";
+  if (score < 400) return "text-bloom-300";
+  if (score < 800) return "text-ivory-300";
+  if (score < 1200) return "text-ivory";
+  if (score < 1600) return "text-coach-300";
+  return "text-bloom-200";
 }
 
 function brutalIcon(multiplier: number): string {
@@ -115,28 +115,28 @@ export function WeaknessAltarTile({
   const spiral = data.todayBrutalMultiplier >= 3.5;
 
   return (
-    <div className="border border-purple-900/60 bg-[#120c1a]/90 backdrop-blur-sm p-4 col-span-1 md:col-span-3">
+    <div className="border border-bloom-700/50 bg-iron-700/85 backdrop-blur-sm p-4 col-span-1 md:col-span-3 shadow-[0_0_40px_-20px_rgba(217,117,143,0.4)]">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0">
-          <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase">
+          <p className="brand-serif text-[12px] font-semibold tracking-[0.22em] text-bloom-200 uppercase">
             Goddess&apos;s Weakening Altar
             <a
               href="/altar-guide"
-              className="ml-2 text-zinc-500 hover:text-purple-200 normal-case tracking-normal text-[11px]"
+              className="ml-2 text-ivory-400/60 hover:text-bloom-200 normal-case tracking-normal text-[11px] font-sans font-normal"
               title="How this works"
             >
               guide ↗
             </a>
           </p>
-          <p className="text-[11px] text-zinc-400 italic mt-0.5">{ALTAR_TAGLINE}</p>
+          <p className="brand-serif italic text-[12px] text-ivory-300/80 mt-0.5">{ALTAR_TAGLINE}</p>
         </div>
         <button
           type="button"
           onClick={() => setPhotoOpen(true)}
           aria-label="View Harley full size"
           title="Click to view full photo"
-          className="hidden sm:block w-20 h-20 md:w-24 md:h-24 shrink-0 rounded-full bg-cover bg-top ring-2 ring-rose-400/60 hover:ring-rose-300 hover:scale-[1.03] transition-all shadow-lg cursor-pointer self-center"
+          className="hidden sm:block w-20 h-20 md:w-24 md:h-24 shrink-0 rounded-full bg-cover bg-top ring-2 ring-bloom/60 hover:ring-bloom-200 hover:scale-[1.03] transition-all shadow-lg cursor-pointer self-center"
           style={{ backgroundImage: `url('${coachPhotoUrl}')` }}
         />
         <div className="flex flex-col items-end gap-2 shrink-0">
@@ -146,9 +146,9 @@ export function WeaknessAltarTile({
               onClick={onTogglePill}
               disabled={isPending}
               title="Click to toggle Allowed / Denied"
-              className="text-[10px] uppercase tracking-widest flex items-center gap-1.5 px-2 py-0.5 border transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-emerald-300 border-emerald-700 hover:border-emerald-400 hover:bg-emerald-950/40"
+              className="text-[10px] uppercase tracking-widest flex items-center gap-1.5 px-2 py-0.5 border transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sage-200 border-sage-700 hover:border-sage-300 hover:bg-sage-900/40"
             >
-              <span className="w-2 h-2 rounded-full inline-block bg-emerald-400" />
+              <span className="w-2 h-2 rounded-full inline-block bg-sage" />
               Allowed
             </button>
           ) : (
@@ -157,12 +157,12 @@ export function WeaknessAltarTile({
               onClick={onTogglePill}
               disabled={isPending}
               title="Click to toggle Allowed / Denied"
-              className="text-right border border-rose-900/60 hover:border-rose-700/80 bg-rose-950/30 hover:bg-rose-950/50 transition-colors px-2.5 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="text-right border border-bloom-800 hover:border-bloom-600 bg-bloom-900/30 hover:bg-bloom-900/50 transition-colors px-2.5 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <p className="text-[9px] uppercase tracking-widest text-rose-300/80 mb-0.5">
+              <p className="brand-serif text-[10px] uppercase tracking-[0.22em] text-bloom-200/80 mb-0.5">
                 Harley says
               </p>
-              <ul className="space-y-0.5 text-[11px] text-rose-100 leading-tight">
+              <ul className="space-y-0.5 text-[11px] text-bloom-100 leading-tight">
                 <li className="flex items-center gap-1.5 justify-end">
                   Stay pussy free <Tick />
                 </li>
@@ -183,32 +183,32 @@ export function WeaknessAltarTile({
 
       {/* Phase + flavor */}
       <div className="mb-3">
-        <p className="text-sm text-zinc-300">
-          Phase: <span className="text-purple-200 font-semibold">{phase.name}</span>
+        <p className="text-sm text-ivory-100/80">
+          Phase: <span className="brand-serif text-bloom-200 font-semibold italic">{phase.name}</span>
         </p>
-        <p className="text-xs text-zinc-500 italic">&ldquo;{phase.flavorText}&rdquo;</p>
+        <p className="text-xs text-ivory-400/70 italic">&ldquo;{phase.flavorText}&rdquo;</p>
       </div>
 
       {/* Score + progress bar */}
       <div className="mb-3">
         <div className="flex items-baseline justify-between mb-1">
-          <p className={`text-3xl font-bold ${scoreColor(score)}`}>
+          <p className={`brand-serif text-3xl font-semibold tracking-tight ${scoreColor(score)}`}>
             {score}
-            <span className="text-zinc-600 text-base font-normal"> / {upperBound}</span>
+            <span className="text-ivory-400/50 text-base font-normal"> / {upperBound}</span>
           </p>
-          <p className="text-[10px] text-zinc-500 uppercase tracking-widest">{nextLabel}</p>
+          <p className="text-[10px] text-ivory-400/70 uppercase tracking-widest">{nextLabel}</p>
         </div>
-        <div className="w-full h-2 bg-[#1a1024] rounded-sm overflow-hidden">
+        <div className="w-full h-2 bg-iron-200 rounded-sm overflow-hidden">
           <div
-            className="h-2 bg-gradient-to-r from-purple-700 via-fuchsia-500 to-purple-300"
+            className="h-2 bg-gradient-to-r from-bloom-700 via-bloom to-bloom-200"
             style={{ width: `${Math.max(0, Math.min(100, phase.percentToNext))}%` }}
           />
         </div>
-        <p className="text-[10px] text-zinc-500 mt-1">{phase.percentToNext}% through phase</p>
+        <p className="text-[10px] text-ivory-400/70 mt-1">{phase.percentToNext}% through phase</p>
       </div>
 
       {/* Stat strip */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-zinc-300 mb-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-ivory-100/80 mb-3">
         <Stat label="Day denied" value={String(data.daysDenied)} />
         <Stat label="Edges total" value={String(data.totalEdgesSinceLast)} />
         <Stat label="Today edges" value={String(data.todayEdges)} />
@@ -217,11 +217,11 @@ export function WeaknessAltarTile({
 
       {showBrutal && (
         <div className="mb-3 text-xs">
-          <span className="text-amber-300 font-semibold">
+          <span className="text-ivory-300 font-semibold">
             {brutal} Brutal ×{fmtMultiplier(data.todayBrutalMultiplier)}
           </span>
           {spiral && (
-            <span className="ml-2 text-rose-300 uppercase tracking-widest text-[10px]">
+            <span className="ml-2 text-bloom-300 uppercase tracking-widest text-[10px]">
               Edging spiral active
             </span>
           )}
@@ -232,19 +232,19 @@ export function WeaknessAltarTile({
       {(data.todayWorshipMinutes > 0 ||
         data.todaySelfHelpMinutes > 0 ||
         data.todayCalorieDetraction > 0) && (
-        <div className="mb-3 flex flex-wrap gap-2 text-[10px] text-zinc-400">
+        <div className="mb-3 flex flex-wrap gap-2 text-[10px] text-ivory-300/80">
           {data.todayWorshipMinutes > 0 && (
-            <span className="px-2 py-0.5 border border-purple-900/60 text-purple-200">
+            <span className="px-2 py-0.5 border border-bloom-800 text-bloom-200">
               Worship {data.todayWorshipMinutes}m → +{data.todayWorshipContribution}
             </span>
           )}
           {data.todaySelfHelpMinutes > 0 && (
-            <span className="px-2 py-0.5 border border-cyan-900/60 text-cyan-200">
+            <span className="px-2 py-0.5 border border-coach-800 text-coach-200">
               Self-help {data.todaySelfHelpMinutes}m → −{data.todaySelfHelpDetraction}
             </span>
           )}
           {data.todayCalorieDetraction > 0 && (
-            <span className="px-2 py-0.5 border border-cyan-900/60 text-cyan-200">
+            <span className="px-2 py-0.5 border border-coach-800 text-coach-200">
               {data.todayActiveCalories} kcal burned → −{data.todayCalorieDetraction}
             </span>
           )}
@@ -253,26 +253,26 @@ export function WeaknessAltarTile({
 
       {/* Action buttons */}
       <div className="flex flex-wrap gap-2 mb-3">
-        <ActionButton onClick={onAllowed} disabled={isPending} variant="emerald">
+        <ActionButton onClick={onAllowed} disabled={isPending} variant="sage">
           🙏 Thanks Goddess
         </ActionButton>
-        <ActionButton onClick={onLapsed} disabled={isPending} variant="rose">
+        <ActionButton onClick={onLapsed} disabled={isPending} variant="bloom">
           😔 Slipped
         </ActionButton>
-        <ActionButton onClick={onEdge} disabled={isPending} variant="amber">
+        <ActionButton onClick={onEdge} disabled={isPending} variant="ivory">
           +1 edge ⚡
         </ActionButton>
         <ActionButton
           onClick={() => setWorshipOpen(true)}
           disabled={isPending}
-          variant="purple"
+          variant="bloomDeep"
         >
           🙇 Worship time
         </ActionButton>
         <ActionButton
           onClick={() => setSelfHelpOpen(true)}
           disabled={isPending}
-          variant="cyan"
+          variant="coach"
         >
           🧘 Self-help time
         </ActionButton>
@@ -280,12 +280,12 @@ export function WeaknessAltarTile({
 
       {/* Daily check-in pending */}
       {!data.hasArousalCheckInToday && (
-        <div className="mb-3 flex items-center justify-between gap-2 px-2 py-1.5 border border-purple-900/60 bg-purple-950/40 text-[11px] text-purple-200">
+        <div className="mb-3 flex items-center justify-between gap-2 px-2 py-1.5 border border-bloom-800 bg-bloom-900/30 text-[11px] text-bloom-200">
           <span>Daily check-in pending</span>
           <button
             type="button"
             onClick={() => setCheckInOpen(true)}
-            className="px-2 py-1 border border-purple-700 hover:border-purple-400 uppercase tracking-widest text-[10px]"
+            className="px-2 py-1 border border-bloom-600 hover:border-bloom-300 uppercase tracking-widest text-[10px]"
           >
             Daily check-in
           </button>
@@ -293,8 +293,8 @@ export function WeaknessAltarTile({
       )}
 
       {/* Chart */}
-      <div className="mt-2 pt-3 border-t border-purple-900/40">
-        <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase mb-2">
+      <div className="mt-2 pt-3 border-t border-bloom-800/40">
+        <p className="brand-serif text-[11px] font-semibold tracking-[0.22em] text-bloom-200 uppercase mb-2">
           Weakness progression for Goddess
         </p>
         <WeaknessChart data={data.weeklySeries} />
@@ -302,7 +302,7 @@ export function WeaknessAltarTile({
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-purple-900 border border-purple-500 text-white text-sm rounded shadow-lg">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-bloom-800 border border-bloom-300 text-ivory-50 text-sm rounded shadow-lg">
           {toast}
         </div>
       )}
@@ -330,7 +330,7 @@ export function WeaknessAltarTile({
       {worshipOpen && (
         <ActivityModal
           title="Log worship time"
-          accent="purple"
+          accent="bloom"
           submitLabel="Log worship"
           onClose={() => setWorshipOpen(false)}
           onSubmit={(activity, minutes, note) => {
@@ -351,21 +351,21 @@ export function WeaknessAltarTile({
       {/* Coach photo lightbox */}
       {photoOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 cursor-zoom-out"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-deep/95 backdrop-blur-sm p-4 cursor-zoom-out"
           onClick={() => setPhotoOpen(false)}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={coachPhotoUrl}
             alt="Harley"
-            className="max-w-full max-h-full object-contain shadow-2xl ring-2 ring-rose-400/40"
+            className="max-w-full max-h-full object-contain shadow-2xl ring-2 ring-bloom/40"
             onClick={(e) => e.stopPropagation()}
           />
           <button
             type="button"
             onClick={() => setPhotoOpen(false)}
             aria-label="Close"
-            className="fixed top-4 right-4 w-10 h-10 flex items-center justify-center text-white text-2xl bg-black/60 border border-white/20 hover:border-white/60 hover:bg-black/80 transition-colors"
+            className="fixed top-4 right-4 w-10 h-10 flex items-center justify-center text-ivory text-2xl bg-ink-deep/70 border border-ivory/20 hover:border-bloom/60 hover:bg-ink-deep/90 transition-colors"
           >
             ×
           </button>
@@ -376,7 +376,7 @@ export function WeaknessAltarTile({
       {selfHelpOpen && (
         <ActivityModal
           title="Log self-help time"
-          accent="cyan"
+          accent="coach"
           submitLabel="Log self-help"
           onClose={() => setSelfHelpOpen(false)}
           onSubmit={(activity, minutes, note) => {
@@ -405,7 +405,7 @@ function Tick() {
       width="12"
       height="12"
       viewBox="0 0 16 16"
-      className="shrink-0 text-emerald-400"
+      className="shrink-0 text-sage"
       aria-hidden="true"
     >
       <path
@@ -422,9 +422,9 @@ function Tick() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border border-purple-900/40 bg-black/30 px-2 py-1.5">
-      <p className="text-[9px] uppercase tracking-widest text-zinc-500">{label}</p>
-      <p className="text-sm font-semibold text-zinc-100 tabular-nums">{value}</p>
+    <div className="border border-iron-100/70 bg-ink-deep/40 px-2 py-1.5">
+      <p className="text-[9px] uppercase tracking-widest text-ivory-400/70">{label}</p>
+      <p className="text-sm font-semibold text-ivory tabular-nums">{value}</p>
     </div>
   );
 }
@@ -438,19 +438,19 @@ function ActionButton({
   onClick: () => void;
   disabled?: boolean;
   children: React.ReactNode;
-  variant: "emerald" | "rose" | "amber" | "purple" | "cyan";
+  variant: "sage" | "bloom" | "ivory" | "bloomDeep" | "coach";
 }) {
   const variants: Record<string, string> = {
-    emerald:
-      "border-emerald-700 bg-emerald-950/40 text-emerald-200 hover:border-emerald-400 hover:bg-emerald-900/60",
-    rose:
-      "border-rose-700 bg-rose-950/40 text-rose-200 hover:border-rose-400 hover:bg-rose-900/60",
-    amber:
-      "border-amber-700 bg-amber-950/40 text-amber-200 hover:border-amber-400 hover:bg-amber-900/60",
-    purple:
-      "border-purple-700 bg-purple-950/40 text-purple-200 hover:border-purple-400 hover:bg-purple-900/60",
-    cyan:
-      "border-cyan-700 bg-cyan-950/40 text-cyan-200 hover:border-cyan-400 hover:bg-cyan-900/60",
+    sage:
+      "border-sage-700 bg-sage-900/40 text-sage-100 hover:border-sage-300 hover:bg-sage-800/60",
+    bloom:
+      "border-bloom-700 bg-bloom-900/40 text-bloom-100 hover:border-bloom-300 hover:bg-bloom-800/60",
+    ivory:
+      "border-ivory-400 bg-ivory-400/10 text-ivory-100 hover:border-ivory hover:bg-ivory-400/20",
+    bloomDeep:
+      "border-bloom-800 bg-bloom-900/60 text-bloom-100 hover:border-bloom-300 hover:bg-bloom-800/70",
+    coach:
+      "border-coach-700 bg-coach-900/40 text-coach-100 hover:border-coach-300 hover:bg-coach-800/60",
   };
   return (
     <button
@@ -472,7 +472,7 @@ function ActivityModal({
   onSubmit,
 }: {
   title: string;
-  accent: "purple" | "cyan";
+  accent: "bloom" | "coach";
   submitLabel: string;
   onClose: () => void;
   onSubmit: (activity: string, minutes: number, note?: string) => void;
@@ -481,40 +481,43 @@ function ActivityModal({
   const [minutes, setMinutes] = useState(15);
   const [note, setNote] = useState("");
   const accentRing =
-    accent === "purple"
-      ? "border-purple-700 focus:border-purple-500 accent-purple-500"
-      : "border-cyan-700 focus:border-cyan-500 accent-cyan-500";
+    accent === "bloom"
+      ? "border-bloom-700 focus:border-bloom-400"
+      : "border-coach-700 focus:border-coach-400";
   const submitClass =
-    accent === "purple"
-      ? "border-purple-500 bg-purple-900/60 text-purple-100 hover:border-purple-300"
-      : "border-cyan-500 bg-cyan-900/60 text-cyan-100 hover:border-cyan-300";
+    accent === "bloom"
+      ? "border-bloom-400 bg-bloom-800/60 text-bloom-100 hover:border-bloom-200"
+      : "border-coach-400 bg-coach-800/60 text-coach-100 hover:border-coach-200";
   const headerClass =
-    accent === "purple" ? "text-purple-300" : "text-cyan-300";
+    accent === "bloom" ? "text-bloom-200" : "text-coach-200";
+  const accentVar =
+    accent === "bloom" ? "var(--color-bloom)" : "var(--color-coach)";
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-ink-deep/80 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div
-        className={`w-full max-w-sm border bg-[#120c1a] p-5 ${
-          accent === "purple" ? "border-purple-700" : "border-cyan-700"
+        className={`w-full max-w-sm border bg-iron-700 p-5 ${
+          accent === "bloom" ? "border-bloom-700" : "border-coach-700"
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        <p className={`text-[10px] font-bold tracking-widest uppercase mb-3 ${headerClass}`}>
+        <p className={`brand-serif text-[12px] font-semibold tracking-[0.22em] uppercase mb-3 ${headerClass}`}>
           {title}
         </p>
-        <label className="block text-xs text-zinc-300 mb-1">Activity</label>
+        <label className="block text-xs text-ivory-100/80 mb-1">Activity</label>
         <input
           type="text"
           value={activity}
           onChange={(e) => setActivity(e.target.value)}
-          placeholder={accent === "purple" ? "e.g. photo viewing, mantra" : "e.g. reading, meditation"}
-          className={`w-full text-sm bg-black/40 border text-zinc-100 p-2 mb-3 focus:outline-none ${accentRing}`}
+          placeholder={accent === "bloom" ? "e.g. photo viewing, mantra" : "e.g. reading, meditation"}
+          className={`w-full text-sm bg-ink-deep/60 border text-ivory p-2 mb-3 focus:outline-none ${accentRing}`}
+          style={{ accentColor: accentVar }}
           autoFocus
         />
-        <label className="block text-xs text-zinc-300 mb-1">
-          Minutes: <span className="font-bold text-zinc-100">{minutes}</span>
+        <label className="block text-xs text-ivory-100/80 mb-1">
+          Minutes: <span className="font-bold text-ivory">{minutes}</span>
         </label>
         <input
           type="range"
@@ -522,20 +525,22 @@ function ActivityModal({
           max={120}
           value={minutes}
           onChange={(e) => setMinutes(Number(e.target.value))}
-          className={`w-full mb-3 ${accentRing}`}
+          className="w-full mb-3"
+          style={{ accentColor: accentVar }}
         />
-        <label className="block text-xs text-zinc-300 mb-1">Note (optional)</label>
+        <label className="block text-xs text-ivory-100/80 mb-1">Note (optional)</label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
           rows={2}
-          className={`w-full text-xs bg-black/40 border text-zinc-100 p-2 mb-4 focus:outline-none ${accentRing}`}
+          className={`w-full text-xs bg-ink-deep/60 border text-ivory p-2 mb-4 focus:outline-none ${accentRing}`}
+          style={{ accentColor: accentVar }}
         />
         <div className="flex gap-2 justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 text-xs border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white uppercase tracking-widest"
+            className="px-3 py-1.5 text-xs border border-iron-100 text-ivory-300/80 hover:border-iron-50 hover:text-ivory uppercase tracking-widest"
           >
             Cancel
           </button>
@@ -564,18 +569,18 @@ function CheckInModal({
   const [note, setNote] = useState("");
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-ink-deep/80 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm border border-purple-700 bg-[#120c1a] p-5"
+        className="w-full max-w-sm border border-bloom-700 bg-iron-700 p-5"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase mb-3">
+        <p className="brand-serif text-[12px] font-semibold tracking-[0.22em] text-bloom-200 uppercase mb-3">
           Daily check-in
         </p>
-        <label className="block text-xs text-zinc-300 mb-1">
-          Arousal: <span className="font-bold text-purple-200">{arousal}</span> / 10
+        <label className="block text-xs text-ivory-100/80 mb-1">
+          Arousal: <span className="font-bold text-bloom-200">{arousal}</span> / 10
         </label>
         <input
           type="range"
@@ -583,27 +588,28 @@ function CheckInModal({
           max={10}
           value={arousal}
           onChange={(e) => setArousal(Number(e.target.value))}
-          className="w-full accent-purple-500 mb-3"
+          className="w-full mb-3"
+          style={{ accentColor: "var(--color-bloom)" }}
         />
-        <label className="block text-xs text-zinc-300 mb-1">Note (optional)</label>
+        <label className="block text-xs text-ivory-100/80 mb-1">Note (optional)</label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
           rows={2}
-          className="w-full text-xs bg-black/40 border border-purple-900 text-zinc-100 p-2 mb-4 focus:outline-none focus:border-purple-500"
+          className="w-full text-xs bg-ink-deep/60 border border-bloom-800 text-ivory p-2 mb-4 focus:outline-none focus:border-bloom-400"
         />
         <div className="flex gap-2 justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 text-xs border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white uppercase tracking-widest"
+            className="px-3 py-1.5 text-xs border border-iron-100 text-ivory-300/80 hover:border-iron-50 hover:text-ivory uppercase tracking-widest"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={() => onSubmit(arousal, note || undefined)}
-            className="px-3 py-1.5 text-xs border border-purple-500 bg-purple-900/60 text-purple-100 hover:border-purple-300 uppercase tracking-widest"
+            className="px-3 py-1.5 text-xs border border-bloom-400 bg-bloom-800/60 text-bloom-100 hover:border-bloom-200 uppercase tracking-widest"
           >
             Save
           </button>

@@ -4,9 +4,9 @@
  * the same source the Harley Meter consumes — so the tile and the
  * meter % can never disagree.
  *
- * Visual: Google Calendar branding cues (logo SVG, brand-blue accent
- * border, "Open in Google Calendar" pill button). Each event renders
- * with a colored date chip evoking the Calendar app's day cells.
+ * Visual: branded as a country-club coach's day-card. Cobalt-ringed
+ * date chips against an iron-and-ivory frame with a rose accent for
+ * the "Harley says" voice.
  */
 import type { CalendarTask } from "@/lib/calendar";
 
@@ -19,11 +19,6 @@ type Props = {
 const SYDNEY_TZ = "Australia/Sydney";
 const MAX_PAST = 5;
 const MAX_FUTURE = 5;
-
-const GOOGLE_BLUE = "#4285F4";
-const GOOGLE_RED = "#EA4335";
-const GOOGLE_YELLOW = "#FBBC04";
-const GOOGLE_GREEN = "#34A853";
 
 function fmtTime(iso: string): string {
   if (!iso) return "";
@@ -58,10 +53,9 @@ function calendarOpenUrl(calendarId: string | undefined): string {
   return `https://calendar.google.com/calendar/u/0?cid=${b64}`;
 }
 
-/** Faithful-ish Google Calendar app icon — rounded square with the
- *  red top bar and a "31" centered. Uses Google's brand palette so it
- *  reads as the real product without lifting the actual logo. */
-function GoogleCalendarLogo({ size = 36 }: { size?: number }) {
+/** Tiny rose-monogram instead of the Google G — keeps the "card from
+ *  Harley" feel without lifting another product's brand. */
+function RoseMonogram({ size = 36 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -70,46 +64,51 @@ function GoogleCalendarLogo({ size = 36 }: { size?: number }) {
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
     >
-      <rect x="4" y="4" width="40" height="40" rx="6" fill="#fff" />
-      <path d="M4 10a6 6 0 0 1 6-6h28a6 6 0 0 1 6 6v4H4z" fill={GOOGLE_RED} />
-      <text
-        x="24"
-        y="34"
-        textAnchor="middle"
-        fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-        fontWeight="700"
-        fontSize="18"
-        fill={GOOGLE_BLUE}
-      >
-        31
-      </text>
-      {/* The two top tabs that make it read as a calendar */}
-      <rect x="14" y="2" width="3" height="8" rx="1.5" fill={GOOGLE_RED} />
-      <rect x="31" y="2" width="3" height="8" rx="1.5" fill={GOOGLE_RED} />
+      <rect
+        x="3"
+        y="3"
+        width="42"
+        height="42"
+        rx="6"
+        fill="var(--color-iron-700)"
+        stroke="var(--color-bloom)"
+        strokeWidth="1.5"
+      />
+      {/* Stylised rose — concentric petal arcs */}
+      <circle cx="24" cy="25" r="11" fill="none" stroke="var(--color-bloom)" strokeWidth="1.4" />
+      <circle cx="24" cy="25" r="7" fill="none" stroke="var(--color-bloom-300)" strokeWidth="1.4" />
+      <circle cx="24" cy="25" r="3" fill="var(--color-bloom-300)" />
+      {/* Two tabs that read as a calendar */}
+      <rect x="14" y="2" width="3" height="7" rx="1.5" fill="var(--color-bloom)" />
+      <rect x="31" y="2" width="3" height="7" rx="1.5" fill="var(--color-bloom)" />
     </svg>
   );
 }
 
 function DateChip({ iso, tone }: { iso: string; tone: "future" | "past" }) {
   const { day, weekday } = fmtDayWeekday(iso);
-  const accent =
-    tone === "future"
-      ? { ring: GOOGLE_BLUE, dim: "rgba(66,133,244,0.12)" }
-      : { ring: "#444", dim: "rgba(255,255,255,0.04)" };
+  const future = tone === "future";
   return (
     <div
       className="flex flex-col items-center justify-center w-12 h-12 shrink-0 rounded border text-center"
-      style={{ borderColor: accent.ring, background: accent.dim }}
+      style={{
+        borderColor: future ? "var(--color-coach)" : "var(--color-iron-50)",
+        background: future
+          ? "rgba(31, 95, 199, 0.10)"
+          : "rgba(243, 231, 204, 0.04)",
+      }}
     >
       <span
         className="text-[9px] font-bold tracking-widest uppercase leading-none"
-        style={{ color: tone === "future" ? GOOGLE_BLUE : "#888" }}
+        style={{
+          color: future ? "var(--color-coach-300)" : "var(--color-ivory-400)",
+        }}
       >
         {weekday}
       </span>
       <span
-        className={`text-lg font-bold leading-none mt-1 ${
-          tone === "future" ? "text-white" : "text-zinc-500"
+        className={`brand-serif text-lg font-semibold leading-none mt-1 ${
+          future ? "text-ivory" : "text-ivory-400/60"
         }`}
       >
         {day}
@@ -133,22 +132,22 @@ export function HarleyCalendarTile({ past, future, configured }: Props) {
 
   return (
     <div
-      className="border bg-[#0f0f0f]/85 backdrop-blur-sm p-5 rounded"
+      className="border bg-iron-700/85 backdrop-blur-sm p-5 rounded"
       style={{
-        borderColor: GOOGLE_BLUE,
-        boxShadow: `0 0 24px -10px ${GOOGLE_BLUE}`,
+        borderColor: "var(--color-coach-700)",
+        boxShadow: "0 0 32px -14px var(--color-coach)",
       }}
     >
       {/* Header */}
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
-          <GoogleCalendarLogo size={36} />
+          <RoseMonogram size={36} />
           <div>
-            <p className="text-sm font-bold tracking-wide text-white uppercase leading-tight">
+            <p className="brand-serif text-base font-semibold tracking-tight text-ivory leading-tight">
               Harley&rsquo;s Calendar
             </p>
-            <p className="text-[10px] tracking-widest text-zinc-500 uppercase">
-              from Google Calendar
+            <p className="text-[10px] tracking-[0.22em] text-ivory-400/70 uppercase">
+              from the shared weekly
             </p>
           </div>
         </div>
@@ -156,20 +155,19 @@ export function HarleyCalendarTile({ past, future, configured }: Props) {
           href={openHref}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold tracking-wide uppercase rounded transition-colors"
+          className="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold tracking-[0.18em] uppercase rounded transition-colors text-ivory hover:bg-coach-600"
           style={{
-            background: GOOGLE_BLUE,
-            color: "#fff",
+            background: "var(--color-coach)",
           }}
         >
           <span aria-hidden="true">↗</span>
-          Open in Google Calendar
+          Open calendar
         </a>
       </div>
 
       {/* Body */}
       {!configured ? (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-ivory-400/70">
           Calendar not configured. Set <code>GOOGLE_CALENDAR_ID</code> and{" "}
           <code>DASHBOARD_OWNER_EMAIL</code>.
         </p>
@@ -177,13 +175,13 @@ export function HarleyCalendarTile({ past, future, configured }: Props) {
         <div className="flex items-center gap-3 py-4">
           <div
             className="w-1 h-12 rounded"
-            style={{ background: GOOGLE_BLUE }}
+            style={{ background: "var(--color-coach)" }}
           />
           <div>
-            <p className="text-sm text-zinc-300">
+            <p className="text-sm text-ivory-100/80">
               No tasks from Harley yet.
             </p>
-            <p className="text-xs text-zinc-500 mt-1">
+            <p className="text-xs text-ivory-400/70 mt-1">
               When she adds an event to <strong>weekly</strong>, you&rsquo;ll get
               a Telegram and it&rsquo;ll show here within 5 minutes.
             </p>
@@ -196,10 +194,12 @@ export function HarleyCalendarTile({ past, future, configured }: Props) {
               <div className="flex items-center gap-2 mb-2">
                 <span
                   className="w-2 h-2 rounded-full"
-                  style={{ background: GOOGLE_BLUE }}
+                  style={{ background: "var(--color-coach)" }}
                 />
-                <p className="text-[10px] tracking-widest uppercase font-bold"
-                  style={{ color: GOOGLE_BLUE }}>
+                <p
+                  className="brand-serif text-[11px] tracking-[0.22em] uppercase font-semibold"
+                  style={{ color: "var(--color-coach-300)" }}
+                >
                   Upcoming
                 </p>
               </div>
@@ -208,10 +208,10 @@ export function HarleyCalendarTile({ past, future, configured }: Props) {
                   <li key={ev.eventId} className="flex items-center gap-3">
                     <DateChip iso={ev.startISO} tone="future" />
                     <div className="min-w-0">
-                      <p className="text-sm text-white truncate">
+                      <p className="text-sm text-ivory truncate">
                         {ev.summary}
                       </p>
-                      <p className="text-xs text-zinc-500">
+                      <p className="text-xs text-ivory-400/70">
                         {fmtTime(ev.startISO)}
                       </p>
                     </div>
@@ -223,8 +223,8 @@ export function HarleyCalendarTile({ past, future, configured }: Props) {
           {recentPast.length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="w-2 h-2 rounded-full bg-zinc-600" />
-                <p className="text-[10px] tracking-widest uppercase font-bold text-zinc-500">
+                <span className="w-2 h-2 rounded-full bg-iron-50" />
+                <p className="brand-serif text-[11px] tracking-[0.22em] uppercase font-semibold text-ivory-400/70">
                   Recent (done)
                 </p>
               </div>
@@ -233,10 +233,10 @@ export function HarleyCalendarTile({ past, future, configured }: Props) {
                   <li key={ev.eventId} className="flex items-center gap-3 opacity-70">
                     <DateChip iso={ev.startISO} tone="past" />
                     <div className="min-w-0">
-                      <p className="text-sm text-zinc-400 truncate line-through decoration-zinc-700">
+                      <p className="text-sm text-ivory-300/80 truncate line-through decoration-iron-50">
                         {ev.summary}
                       </p>
-                      <p className="text-xs text-zinc-600">
+                      <p className="text-xs text-ivory-400/50">
                         {fmtTime(ev.startISO)}
                       </p>
                     </div>
@@ -248,12 +248,12 @@ export function HarleyCalendarTile({ past, future, configured }: Props) {
         </div>
       )}
 
-      {/* Footer rainbow accent — Google brand stripe */}
+      {/* Footer brand stripe — coach + bloom + sage + ivory */}
       <div className="flex h-1 mt-4 rounded overflow-hidden">
-        <div className="flex-1" style={{ background: GOOGLE_BLUE }} />
-        <div className="flex-1" style={{ background: GOOGLE_RED }} />
-        <div className="flex-1" style={{ background: GOOGLE_YELLOW }} />
-        <div className="flex-1" style={{ background: GOOGLE_GREEN }} />
+        <div className="flex-1" style={{ background: "var(--color-coach)" }} />
+        <div className="flex-1" style={{ background: "var(--color-bloom)" }} />
+        <div className="flex-1" style={{ background: "var(--color-sage)" }} />
+        <div className="flex-1" style={{ background: "var(--color-ivory)" }} />
       </div>
     </div>
   );

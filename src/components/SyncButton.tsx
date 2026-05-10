@@ -71,7 +71,7 @@ export function SyncButton() {
         type="button"
         onClick={onClick}
         disabled={state.kind === "syncing"}
-        className="group flex items-center gap-1.5 px-2 py-1 border border-[#333] hover:border-zinc-500 disabled:hover:border-[#333] text-[10px] font-semibold uppercase tracking-widest text-zinc-300 hover:text-white disabled:text-zinc-500 transition-colors"
+        className="group flex items-center gap-1.5 px-2 py-1 border border-iron-100 hover:border-coach-500 disabled:hover:border-iron-100 text-[10px] font-semibold uppercase tracking-widest text-ivory-300/80 hover:text-ivory disabled:text-ivory-400/50 transition-colors"
         aria-label="Sync now"
       >
         <SyncIcon spinning={state.kind === "syncing"} />
@@ -121,29 +121,29 @@ function SyncIcon({ spinning }: { spinning: boolean }) {
 
 function DonePanel({ data }: { data: SyncResponse }) {
   return (
-    <div className="absolute right-0 top-full mt-1 z-20 w-72 border border-[#333] bg-black/90 backdrop-blur-sm p-3 text-[11px] text-zinc-300">
+    <div className="absolute right-0 top-full mt-1 z-20 w-72 border border-iron-100 bg-ink-deep/95 backdrop-blur-sm p-3 text-[11px] text-ivory-100/80">
       <p className="mb-1.5">
-        <span className="text-zinc-500 uppercase tracking-widest text-[9px]">Whoop:</span>{" "}
+        <span className="text-ivory-400/70 uppercase tracking-widest text-[9px]">Whoop:</span>{" "}
         <span className={whoopColor(data.whoop)}>{data.whoop}</span>
         {data.whoopDetail && (
-          <span className="text-zinc-500"> · {data.whoopDetail}</span>
+          <span className="text-ivory-400/70"> · {data.whoopDetail}</span>
         )}
       </p>
       <p className="mb-1.5">
-        <span className="text-zinc-500 uppercase tracking-widest text-[9px]">Screen Time:</span>{" "}
+        <span className="text-ivory-400/70 uppercase tracking-widest text-[9px]">Screen Time:</span>{" "}
         <span className={screentimeColor(data.screentime)}>{data.screentime}</span>
         {data.screentimeDetail && (
-          <span className="text-zinc-500"> · {data.screentimeDetail}</span>
+          <span className="text-ivory-400/70"> · {data.screentimeDetail}</span>
         )}
       </p>
       {data.manualAsks.length > 0 && (
-        <div className="border-t border-[#222] pt-2">
-          <p className="text-zinc-500 uppercase tracking-widest text-[9px] mb-1">
+        <div className="border-t border-iron-100 pt-2">
+          <p className="text-ivory-400/70 uppercase tracking-widest text-[9px] mb-1">
             Manual asks (fire on your devices)
           </p>
           <ul className="space-y-0.5">
             {data.manualAsks.map((a, i) => (
-              <li key={i} className="text-zinc-400 break-words">
+              <li key={i} className="text-ivory-100/70 break-words">
                 · {a}
               </li>
             ))}
@@ -156,10 +156,10 @@ function DonePanel({ data }: { data: SyncResponse }) {
 
 function ErrorPanel({ state }: { state: Extract<State, { kind: "error" }> }) {
   return (
-    <div className="absolute right-0 top-full mt-1 z-20 w-56 border border-red-900 bg-black/90 backdrop-blur-sm p-2 text-[11px] text-red-300">
+    <div className="absolute right-0 top-full mt-1 z-20 w-56 border border-bloom-700 bg-ink-deep/95 backdrop-blur-sm p-2 text-[11px] text-bloom-200">
       {state.message}
       {state.retryAfterSec !== undefined && (
-        <span className="text-zinc-500"> · retry in {state.retryAfterSec}s</span>
+        <span className="text-ivory-400/70"> · retry in {state.retryAfterSec}s</span>
       )}
     </div>
   );
@@ -168,23 +168,23 @@ function ErrorPanel({ state }: { state: Extract<State, { kind: "error" }> }) {
 function whoopColor(s: SyncResponse["whoop"]): string {
   switch (s) {
     case "ok":
-      return "text-green-400";
+      return "text-sage-300";
     case "not_connected":
-      return "text-amber-400";
+      return "text-ivory-300";
     case "not_configured":
-      return "text-amber-400";
+      return "text-ivory-300";
     case "error":
-      return "text-red-400";
+      return "text-bloom-300";
   }
 }
 
 function screentimeColor(s: SyncResponse["screentime"]): string {
   switch (s) {
     case "queued":
-      return "text-green-400";
+      return "text-sage-300";
     case "not_configured":
-      return "text-amber-400";
+      return "text-ivory-300";
     case "error":
-      return "text-red-400";
+      return "text-bloom-300";
   }
 }
