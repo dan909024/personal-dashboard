@@ -3304,6 +3304,7 @@ export const SETTINGS_SEED_ROWS: (string | number)[][] = [
   ["nutrition_calorie_target", 2940, "", "system"],
   ["nutrition_water_target_ml", 3350, "", "system"],
   ["phase_thresholds", JSON.stringify(DEFAULT_PHASE_THRESHOLDS), "", "system"],
+  ["video_store_spend_month", 0, "", "manual"],
 ];
 
 function parseSettingsRows(rows: string[][] | null): Map<string, string> {
@@ -3442,6 +3443,56 @@ function weaknessSettingsFromMap(map: Map<string, string>): WeaknessSettings {
  */
 export async function getWeaknessSettings(): Promise<WeaknessSettings> {
   return weaknessSettingsFromMap(await readSettingsTab());
+}
+
+// ---------- Video store spend (manual monthly entry) ----------
+//
+// Daniel updates a single Settings row (`video_store_spend_month`) with the
+// month's total retail spend. The first $400 of retail is 90% off (he pays
+// 10%); past $400 the discount no longer applies and he owes Harley the 90%
+// he would have been discounted on the excess. Freshness is inferred from
+// the row's "Last Updated" column — when its YYYY-MM differs from the
+// current Sydney month, the value is treated as $0 (last month's number is
+// not this month's spend).
+
+export const VIDEO_STORE_DISCOUNT_CAP = 400;
+export const VIDEO_STORE_OWED_RATE = 0.9;
+
+export type VideoStoreSpend = {
+  amount: number;
+  cap: number;
+  owed: number;
+  lastUpdated: string;
+  periodFresh: boolean;
+};
+
+function sydneyYearMonth(): string {
+  return todaySydneyISO().slice(0, 7);
+}
+
+export async function getVideoStoreSpendMonth(): Promise<VideoStoreSpend> {
+  const rows = (await readTab("Settings")) ?? [];
+  let amountRaw = "";
+  let lastUpdated = "";
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    if (String(r[0] ?? "").trim() === "video_store_spend_month") {
+      amountRaw = String(r[1] ?? "");
+      lastUpdated = String(r[2] ?? "");
+      break;
+    }
+  }
+  const parsed = Number(amountRaw);
+  const periodFresh = lastUpdated.slice(0, 7) === sydneyYearMonth();
+  const amount = periodFresh && Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  const owed = Math.max(0, amount - VIDEO_STORE_DISCOUNT_CAP) * VIDEO_STORE_OWED_RATE;
+  return {
+    amount,
+    cap: VIDEO_STORE_DISCOUNT_CAP,
+    owed,
+    lastUpdated,
+    periodFresh,
+  };
 }
 
 /** Cached read of just orgasm_allowed for the layout background swap. */

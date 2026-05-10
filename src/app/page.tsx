@@ -13,8 +13,10 @@ import {
   getDashboardTransactions,
   getDashboardNutrition,
   getDrinkingStats,
+  getVideoStoreSpendMonth,
   type DrinkingStats,
   type SystemHealth,
+  type VideoStoreSpend,
   type SleepEdit,
   type DashboardAppleHealth,
   type DashboardWhoopWorkouts,
@@ -247,6 +249,7 @@ export default async function Dashboard({
     coachPhotoUrl,
     worshipTotals,
     drinking,
+    videoStore,
   ] = await Promise.all([
     configured ? getOpenTasks(3) : Promise.resolve([]),
     configured ? getHarleyBalance() : Promise.resolve(null as HarleyBalance | null),
@@ -278,6 +281,9 @@ export default async function Dashboard({
     configured
       ? getDrinkingStats()
       : Promise.resolve(null as DrinkingStats | null),
+    configured
+      ? getVideoStoreSpendMonth()
+      : Promise.resolve(null as VideoStoreSpend | null),
   ]);
 
   const calendarConfigured = isCalendarConfigured();
@@ -368,7 +374,9 @@ export default async function Dashboard({
                 <span className="text-iron-50">·</span>{" "}
                 <span className="text-bloom-300">
                   Owed: ${configured ? owedHarley : 135}
-                </span>
+                </span>{" "}
+                <span className="text-iron-50">·</span>{" "}
+                <VideoStorePill data={videoStore} configured={configured} />
               </p>
               <Link
                 href="/harley"
@@ -1246,6 +1254,35 @@ function BottomLink({ label, href }: { label: string; href: string }) {
     >
       {label}
     </a>
+  );
+}
+
+function VideoStorePill({
+  data,
+  configured,
+}: {
+  data: VideoStoreSpend | null;
+  configured: boolean;
+}) {
+  // Visible label + raw retail spend, plus what Daniel owes Harley once
+  // monthly spend crosses the $400 discount cap (90% of the excess). The
+  // value is taken from the manually-updated Settings row; freshness is
+  // inferred from the row's Last Updated month.
+  const amount = configured ? data?.amount ?? 0 : 0;
+  const cap = data?.cap ?? 400;
+  const owed = configured ? data?.owed ?? 0 : 0;
+  const overCap = amount > cap;
+  const color = overCap || amount >= cap * 0.75 ? "text-bloom-300" : "text-ivory-300/80";
+  const fmt = (n: number) => Math.round(n).toLocaleString("en-AU");
+  return (
+    <span className={color}>
+      Video store: ${fmt(amount)} / ${fmt(cap)}
+      {overCap && (
+        <>
+          {" "}<span className="text-bloom-300">(owe ${fmt(owed)})</span>
+        </>
+      )}
+    </span>
   );
 }
 
