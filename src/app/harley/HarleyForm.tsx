@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -102,6 +102,20 @@ export function HarleyForm({
       if (res.ok) {
         flash(`${label} ✓`);
         router.refresh();
+      } else {
+        flash(`Error: ${(res as { error: string }).error}`);
+      }
+    });
+  };
+
+  // Same as `run` but skips router.refresh() — for fine-amount and daily-target
+  // saves where the row component already shows the new value optimistically
+  // and a full re-fetch would interrupt rapid editing across multiple rows.
+  const runSilent = (label: string, fn: () => Promise<ActionResult>) => {
+    startTransition(async () => {
+      const res = await fn();
+      if (res.ok) {
+        flash(`${label} ✓`);
       } else {
         flash(`Error: ${(res as { error: string }).error}`);
       }
@@ -231,7 +245,7 @@ export function HarleyForm({
       flash("Enter a positive amount");
       return;
     }
-    run(`${HARLEY_RULES[ruleId].label} → $${amount}`, () =>
+    runSilent(`${HARLEY_RULES[ruleId].label} → $${amount}`, () =>
       setFineAmountAction(ruleId, amount)
     );
   };
@@ -245,7 +259,7 @@ export function HarleyForm({
     const m = totalMin % 60;
     const label =
       totalMin === 0 ? "off" : `${h}h ${String(m).padStart(2, "0")}m/day`;
-    run(`Worship target → ${label}`, () => setWorshipTargetAction(totalMin));
+    runSilent(`Worship target → ${label}`, () => setWorshipTargetAction(totalMin));
   };
 
   const onSaveEdgesTarget = (count: number) => {
@@ -254,7 +268,7 @@ export function HarleyForm({
       return;
     }
     const label = count === 0 ? "off" : `${count}/day`;
-    run(`Edges target → ${label}`, () => setEdgesTargetAction(count));
+    runSilent(`Edges target → ${label}`, () => setEdgesTargetAction(count));
   };
 
   const onMessageDaniel = async () => {
@@ -1017,6 +1031,8 @@ function WorshipTargetControl({
   disabled?: boolean;
   onSave: (totalMin: number) => void;
 }) {
+  const [shown, setShown] = useState(minutes);
+  useEffect(() => setShown(minutes), [minutes]);
   const [hours, setHours] = useState(String(Math.floor(minutes / 60)));
   const [mins, setMins] = useState(String(minutes % 60));
 
@@ -1024,11 +1040,12 @@ function WorshipTargetControl({
     const h = Math.max(0, Math.min(24, Math.floor(Number(hours) || 0)));
     const m = Math.max(0, Math.min(59, Math.floor(Number(mins) || 0)));
     const total = h * 60 + m;
-    if (total === minutes) return;
+    if (total === shown) return;
+    setShown(total);
     onSave(total);
   };
 
-  const dormant = minutes === 0 || fineAmount === 0;
+  const dormant = shown === 0 || fineAmount === 0;
 
   return (
     <div className="border border-purple-900/40 bg-black/30 p-3">
@@ -1071,7 +1088,7 @@ function WorshipTargetControl({
       <p className="text-[10px] text-zinc-500 mt-2">
         {dormant
           ? "Off — set both this & fine $"
-          : `Active · ${formatHm(minutes)} · $${fineAmount}/miss`}
+          : `Active · ${formatHm(shown)} · $${fineAmount}/miss`}
       </p>
     </div>
   );
@@ -1088,15 +1105,18 @@ function EdgesTargetControl({
   disabled?: boolean;
   onSave: (count: number) => void;
 }) {
+  const [shown, setShown] = useState(count);
+  useEffect(() => setShown(count), [count]);
   const [draft, setDraft] = useState(String(count));
 
   const onSubmit = () => {
     const n = Math.max(0, Math.min(100, Math.floor(Number(draft) || 0)));
-    if (n === count) return;
+    if (n === shown) return;
+    setShown(n);
     onSave(n);
   };
 
-  const dormant = count === 0 || fineAmount === 0;
+  const dormant = shown === 0 || fineAmount === 0;
 
   return (
     <div className="border border-purple-900/40 bg-black/30 p-3">
@@ -1128,7 +1148,7 @@ function EdgesTargetControl({
       <p className="text-[10px] text-zinc-500 mt-2">
         {dormant
           ? "Off — set both this & fine $"
-          : `Active · ${count}/day · $${fineAmount}/miss`}
+          : `Active · ${shown}/day · $${fineAmount}/miss`}
       </p>
     </div>
   );
@@ -1155,22 +1175,28 @@ function FineScheduleRow({
   disabled?: boolean;
   onSave: (ruleId: HarleyRuleId, amount: number) => void;
 }) {
+  // Optimistic local copy so successive edits across rows don't need a
+  // page refresh. Re-syncs whenever the parent prop changes (e.g. another
+  // action triggers a real router.refresh()).
+  const [shown, setShown] = useState(amount);
+  useEffect(() => setShown(amount), [amount]);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(amount));
 
   const startEdit = () => {
-    setDraft(String(amount));
+    setDraft(String(shown));
     setEditing(true);
   };
   const cancel = () => {
-    setDraft(String(amount));
+    setDraft(String(shown));
     setEditing(false);
   };
   const commit = () => {
     const n = Number(draft);
     if (!Number.isFinite(n) || n <= 0) return;
     setEditing(false);
-    if (n === amount) return;
+    if (n === shown) return;
+    setShown(n); // optimistic; reverted by parent re-sync if save fails
     onSave(ruleId, n);
   };
 
@@ -1227,7 +1253,7 @@ function FineScheduleRow({
           title="Edit amount"
           className="font-mono tabular-nums text-amber-300 px-2 py-1 border border-transparent hover:border-purple-700 hover:bg-purple-950/40 transition-colors disabled:opacity-40"
         >
-          ${amount}
+          ${shown}
         </button>
       )}
     </li>
