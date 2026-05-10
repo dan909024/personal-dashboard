@@ -36,10 +36,26 @@ export async function setOrgasmAllowedAction(
 
 export async function logOrgasmAction(
   type: OrgasmType,
-  note?: string
+  note?: string,
+  backdate?: { date: string; time: string }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const { date, daysSincePrevious } = await appendOrgasmLog({ type, note });
+    // Validate backdate format strictly so a typo doesn't silently
+    // write a row with a garbage timestamp.
+    if (backdate) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(backdate.date)) {
+        return { ok: false, error: "backdate.date must be YYYY-MM-DD" };
+      }
+      if (!/^\d{2}:\d{2}$/.test(backdate.time)) {
+        return { ok: false, error: "backdate.time must be HH:MM (24h)" };
+      }
+    }
+    const { date, daysSincePrevious } = await appendOrgasmLog({
+      type,
+      note,
+      date: backdate?.date,
+      time: backdate?.time,
+    });
 
     // A "lapsed" log is a self-reported slip — auto-fine $20 to the
     // Punishments tab. ruleId="slip" so the OWED HARLEY tooltip shows

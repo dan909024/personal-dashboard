@@ -75,7 +75,21 @@ export function WeaknessAltarTile({
   };
   const onLapsed = () => {
     if (!confirm("Log this as a slip (lapsed orgasm)? Adds a $20 fine to Punishments.")) return;
-    runAction("Logged", () => logOrgasmAction("lapsed"));
+    // Optional backdate. Empty/cancel = log at the current Sydney time.
+    // Format strictly enforced server-side so typos don't write garbage.
+    const raw = prompt(
+      "When did the slip happen?\nEmpty = now.\nFormat: YYYY-MM-DD HH:MM (Sydney 24h, e.g. 2026-05-09 17:00)"
+    );
+    let backdate: { date: string; time: string } | undefined;
+    if (raw && raw.trim()) {
+      const m = raw.trim().match(/^(\d{4}-\d{2}-\d{2})[\sT]+(\d{2}:\d{2})$/);
+      if (!m) {
+        alert("Couldn't parse — expected YYYY-MM-DD HH:MM. Aborting (nothing logged).");
+        return;
+      }
+      backdate = { date: m[1], time: m[2] };
+    }
+    runAction("Logged", () => logOrgasmAction("lapsed", undefined, backdate));
   };
   const onEdge = () => {
     runAction("+1 edge", () => logEdgeAction());
