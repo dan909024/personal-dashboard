@@ -339,12 +339,20 @@ export default async function Dashboard({
         {/* Top strip */}
         <div className="w-full bg-black/60 backdrop-blur-sm border-b border-[#222] px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold tracking-widest text-white uppercase">
-              WEEK {week} &middot; {review.label} &middot;{" "}
-              <span className="text-red-400">
-                OWED HARLEY: ${configured ? owedHarley : 135}
-              </span>
-            </p>
+            <div className="flex items-center gap-3 min-w-0">
+              <p className="text-sm font-semibold tracking-widest text-white uppercase">
+                WEEK {week} &middot; {review.label} &middot;{" "}
+                <span className="text-red-400">
+                  OWED HARLEY: ${configured ? owedHarley : 135}
+                </span>
+              </p>
+              <Link
+                href="/harley"
+                className="px-2 py-1 border border-purple-700 bg-purple-950/40 text-purple-200 text-[10px] font-bold uppercase tracking-widest hover:border-purple-400 hover:bg-purple-900/60 hover:text-white transition-colors whitespace-nowrap shrink-0"
+              >
+                Goddess control room →
+              </Link>
+            </div>
             <div className="flex items-center gap-3 shrink-0">
               <SystemHealthPill health={sysHealth} configured={configured} />
               <SyncButton />
