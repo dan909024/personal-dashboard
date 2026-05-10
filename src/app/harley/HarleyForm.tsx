@@ -335,7 +335,7 @@ export function HarleyForm({
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white p-5">
-      <div className="max-w-md mx-auto">
+      <div className="max-w-md lg:max-w-5xl mx-auto">
         <div className="flex items-baseline justify-between gap-3">
           <p className="text-[10px] font-bold tracking-widest text-purple-300 uppercase">
             Goddess Control Panel
@@ -351,7 +351,11 @@ export function HarleyForm({
           Extend, forgive, or punish.
         </p>
 
-        {/* Current state */}
+        {/* Section cards. On lg+ they flow into 2 balanced CSS columns;
+            mobile keeps the original single-column order. break-inside-avoid
+            keeps each card intact across the column break. */}
+        <div className="lg:columns-2 lg:gap-5 [&>div]:break-inside-avoid">
+          {/* Current state */}
         <div className="border border-purple-900/60 bg-[#120c1a]/90 p-4 mb-5">
           <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3">
             Current state
@@ -1037,6 +1041,8 @@ export function HarleyForm({
             </ul>
           </div>
         )}
+
+        </div>
 
         {toast && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-purple-900 border border-purple-500 text-white text-sm rounded shadow-lg">
