@@ -54,6 +54,8 @@ import {
   DENIAL_END_DATE_TAG,
   appendGoddessAudit,
   appendPunishment,
+  getHarleyBalance,
+  getPunishments,
   getSetting,
   isConfigured,
   readDenialEndDate,
@@ -63,12 +65,23 @@ import {
 } from "@/lib/sheets";
 import {
   DEFAULT_FINE_AMOUNTS,
+  HARLEY_RULES,
   fineAmountSettingKey,
+  type HarleyRuleId,
 } from "@/lib/harley-rules";
 import {
+  EDGES_DAILY_TARGET_KEY,
   LAST_SUNDAY_REVIEW_KEY,
+  WORSHIP_DAILY_TARGET_MIN_KEY,
   currentOrPreviousSundayISO,
+  getFineAmounts,
 } from "@/lib/rule-eval";
+import {
+  WAKE_BY_MIN,
+  BED_BY_MIN,
+  STRAIN_TARGET_TRAINING_DAY,
+  TRAINING_DAY_MIN_DURATION_MIN,
+} from "@/lib/harley-meter";
 import { uploadCoachPhoto } from "@/lib/coach-photo";
 
 export const runtime = "nodejs";
@@ -185,6 +198,11 @@ const INFO_TEXT = `🤖 BOT COMMANDS
 
 /info — this list.
 
+/rules — every active rule + its current $ amount.
+
+/status — balance, hard-mode, this week's auto-fines,
+  Sunday-review stamp.
+
 /add <days> — extends Daniel's denial period by N days.
   Adds to the current target if still future, otherwise
   starts a fresh window from now. Cap: 365.
@@ -255,6 +273,152 @@ Hard mode
 
 Recent panel activity
   • Audit log of the last actions taken from the panel.`;
+
+function fmtClock(min: number): string {
+  const h = Math.floor(min / 60) % 24;
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/**
+ * Live rules schedule for /rules. Pulls per-rule amounts from Settings (so
+ * Harley's panel edits show up immediately) and surfaces worship/edges in
+ * dormant/active form based on their daily-target sliders.
+ */
+async function buildRulesMessage(): Promise<string> {
+  const [amounts, worshipTargetRaw, edgesTargetRaw] = await Promise.all([
+    getFineAmounts(),
+    getSetting(WORSHIP_DAILY_TARGET_MIN_KEY),
+    getSetting(EDGES_DAILY_TARGET_KEY),
+  ]);
+  const worshipTarget = Number(worshipTargetRaw);
+  const edgesTarget = Number(edgesTargetRaw);
+  const worshipActive = amounts.worship > 0 && Number.isFinite(worshipTarget) && worshipTarget > 0;
+  const edgesActive = amounts.edges > 0 && Number.isFinite(edgesTarget) && edgesTarget > 0;
+
+  const lines: string[] = [];
+  lines.push("📜 RULES SCHEDULE");
+  lines.push("(Live amounts; Harley edits via /harley.)");
+  lines.push("");
+  lines.push("DAILY ($/failed day)");
+  lines.push(`  wake ≤ ${fmtClock(WAKE_BY_MIN)}        $${amounts.wake}`);
+  lines.push(`  bed ≤ ${fmtClock(BED_BY_MIN)}         $${amounts.bed}`);
+  lines.push(
+    `  strain ≥${STRAIN_TARGET_TRAINING_DAY} on training days  $${amounts.strain}`
+  );
+  lines.push(`  whoopdata (no Whoop sleep) $${amounts.whoopdata}`);
+  lines.push(`  review (Sunday stamp)     $${amounts.review}`);
+  lines.push(`  screentime (any bucket over) $${amounts.screentime}`);
+  lines.push(
+    `  worship · ${worshipActive ? `$${amounts.worship} · ${worshipTarget}min/day` : "dormant"}`
+  );
+  lines.push(
+    `  edges · ${edgesActive ? `$${amounts.edges} · ${edgesTarget}/day` : "dormant"}`
+  );
+  lines.push("");
+  lines.push("WEEKLY ($/eval Sun 22:00)");
+  lines.push(`  gym 4+/wk            $${amounts.gym} × shortfall`);
+  lines.push(`  steps 10k/day        $${amounts.steps} × days under`);
+  lines.push(`  water 3.3L/day avg   $${amounts.water}`);
+  lines.push(`  writing 8h Obsidian  $${amounts.writing}`);
+  lines.push(`  protein 5+ days hit  $${amounts.protein}`);
+  lines.push("");
+  lines.push("MANUAL");
+  lines.push(`  drinking · /drank or panel  $${amounts.drinking}`);
+  lines.push(`  slip · WeaknessAltar btn    $${amounts.slip}`);
+  lines.push("");
+  lines.push("Training day = Whoop workout ≥" + TRAINING_DAY_MIN_DURATION_MIN + "min.");
+  lines.push("Auto-fines fire daily 22:00 Sydney; idempotent on (rule, period).");
+  return lines.join("\n");
+}
+
+/**
+ * Live status for /status. Pulls balance, hard-mode, denial state, this
+ * week's auto-fines, and Sunday-review stamp into a single snapshot.
+ */
+async function buildStatusMessage(): Promise<string> {
+  const [
+    balance,
+    hardModeRaw,
+    allowedRaw,
+    denialEnd,
+    weekFines,
+    lastReview,
+  ] = await Promise.all([
+    getHarleyBalance(),
+    getSetting("hard_mode"),
+    getSetting("orgasm_allowed"),
+    readDenialEndDate(),
+    getPunishments(),
+    getSetting(LAST_SUNDAY_REVIEW_KEY),
+  ]);
+  const hardMode = String(hardModeRaw ?? "").trim().toLowerCase() === "yes";
+  const allowed = String(allowedRaw ?? "").trim().toLowerCase() === "yes";
+
+  const today = todaySydneyISO();
+  const sundayThisWeek = currentOrPreviousSundayISO(today);
+  const reviewStamp = String(lastReview ?? "").trim();
+  const reviewMet = reviewStamp >= sundayThisWeek;
+
+  // Group this-week's fines by ruleId so a long list collapses to a tally.
+  const autoFines = weekFines.filter((f) => f.setBy === "auto");
+  const manualFines = weekFines.filter((f) => f.setBy !== "auto");
+  const autoTotal = autoFines.reduce((s, f) => s + f.amount, 0);
+  const manualTotal = manualFines.reduce((s, f) => s + f.amount, 0);
+  const byRule = new Map<string, { count: number; total: number }>();
+  for (const f of autoFines) {
+    const key = f.ruleId || "?";
+    const prev = byRule.get(key) ?? { count: 0, total: 0 };
+    byRule.set(key, { count: prev.count + 1, total: prev.total + f.amount });
+  }
+
+  const lines: string[] = [];
+  lines.push(`📊 STATUS · ${today}`);
+  lines.push("");
+  lines.push(`Balance: $${balance.owed.toLocaleString("en-AU")} owed`);
+  lines.push(
+    `State: ${allowed ? "✅ ALLOWED" : "🔒 DENIED"}${hardMode ? " · 🔥 hard-mode 2×" : ""}`
+  );
+  if (denialEnd) {
+    const ms = Date.parse(denialEnd);
+    if (!isNaN(ms)) {
+      const diff = ms - Date.now();
+      if (diff > 0) {
+        const days = Math.floor(diff / 86_400_000);
+        const hours = Math.floor((diff % 86_400_000) / 3_600_000);
+        lines.push(`Release in ${days}d ${hours}h`);
+      } else {
+        lines.push("Release target has passed.");
+      }
+    }
+  }
+  lines.push("");
+  lines.push("THIS WEEK (Mon–Sun)");
+  if (autoFines.length === 0 && manualFines.length === 0) {
+    lines.push("  No fines yet. Good boy.");
+  } else {
+    if (autoFines.length > 0) {
+      lines.push(`  Auto: $${autoTotal} · ${autoFines.length} fine${autoFines.length === 1 ? "" : "s"}`);
+      // Rank rules by $ this week.
+      const ranked = [...byRule.entries()].sort((a, b) => b[1].total - a[1].total);
+      for (const [ruleId, agg] of ranked) {
+        const label = HARLEY_RULES[ruleId as HarleyRuleId]?.label ?? ruleId;
+        lines.push(`    • ${label} · $${agg.total} (${agg.count})`);
+      }
+    }
+    if (manualFines.length > 0) {
+      lines.push(`  Manual: $${manualTotal} · ${manualFines.length} fine${manualFines.length === 1 ? "" : "s"}`);
+    }
+  }
+  lines.push("");
+  lines.push(
+    `Sunday review (${sundayThisWeek}): ${reviewMet ? "✓ stamped" : "✗ NOT stamped"}`
+  );
+  if (!reviewMet) {
+    lines.push("  Tap /review or the panel button before Mon 22:00 Sydney to avoid the $30 fine.");
+  }
+  return lines.join("\n");
+}
 
 function formatSydneyHuman(iso: string): string {
   const d = new Date(iso);
@@ -371,6 +535,46 @@ export async function POST(req: NextRequest) {
       console.error("[telegram webhook] /add failed:", (e as Error).message);
       if (botToken) {
         await reply(botToken, chatId, "❌ Failed to extend denial. Check server logs.");
+      }
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  if (text === "/rules" || text.startsWith("/rules@")) {
+    if (!isAuthorizedFineChat(chatId)) {
+      return NextResponse.json({ ok: true });
+    }
+    if (!isConfigured()) {
+      if (botToken) await reply(botToken, chatId, "❌ Sheets not configured.");
+      return NextResponse.json({ ok: true });
+    }
+    try {
+      const msg = await buildRulesMessage();
+      if (botToken) await reply(botToken, chatId, msg);
+    } catch (e) {
+      console.error("[telegram webhook] /rules failed:", (e as Error).message);
+      if (botToken) {
+        await reply(botToken, chatId, "❌ Failed to build rules. Check server logs.");
+      }
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  if (text === "/status" || text.startsWith("/status@")) {
+    if (!isAuthorizedFineChat(chatId)) {
+      return NextResponse.json({ ok: true });
+    }
+    if (!isConfigured()) {
+      if (botToken) await reply(botToken, chatId, "❌ Sheets not configured.");
+      return NextResponse.json({ ok: true });
+    }
+    try {
+      const msg = await buildStatusMessage();
+      if (botToken) await reply(botToken, chatId, msg);
+    } catch (e) {
+      console.error("[telegram webhook] /status failed:", (e as Error).message);
+      if (botToken) {
+        await reply(botToken, chatId, "❌ Failed to build status. Check server logs.");
       }
     }
     return NextResponse.json({ ok: true });
