@@ -15,6 +15,7 @@ import {
   clearDenialAction,
   extendDenialAction,
   logDrinkAction,
+  logSundayReviewAction,
   markFinePaidAction,
   messageDanielAction,
   setDenialDateAction,
@@ -32,7 +33,8 @@ type ActionResult =
   | { ok: true; newEndDate: string }
   | { ok: true; cleared: number }
   | { ok: true; finalAmount: number; doubled: boolean }
-  | { ok: true; eventId: string; htmlLink: string | null };
+  | { ok: true; eventId: string; htmlLink: string | null }
+  | { ok: true; sundayDate: string };
 
 type SyncResult = {
   ok: boolean;
@@ -196,6 +198,10 @@ export function HarleyForm({
     run(`Drank logged · $${fineAmounts.drinking}${hardMode ? " (2×)" : ""}`, () =>
       logDrinkAction()
     );
+  };
+
+  const onLogReview = () => {
+    run("Sunday review stamped", () => logSundayReviewAction());
   };
 
   const onMarkPaid = (rowIndex: number, label: string) => {
@@ -608,18 +614,29 @@ export function HarleyForm({
             Quick log
           </p>
           <p className="text-[11px] text-zinc-500 mb-3 italic">
-            One-tap event logging. Auto-fines at the rule&rsquo;s current $ amount.
-            Daniel can also fire <code className="text-zinc-400">/drank</code> from Telegram.
+            One-tap event logging. Daniel can also fire{" "}
+            <code className="text-zinc-400">/drank</code> or{" "}
+            <code className="text-zinc-400">/review</code> from Telegram.
           </p>
-          <button
-            type="button"
-            onClick={onLogDrink}
-            disabled={isPending}
-            className="w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border border-rose-700 bg-rose-950/40 text-rose-200 hover:border-rose-400 hover:bg-rose-900/60 transition-colors disabled:opacity-50"
-          >
-            🍷 Daniel drank · ${fineAmounts.drinking}
-            {hardMode && <span className="text-amber-300"> · 2×</span>}
-          </button>
+          <div className="grid grid-cols-1 gap-2">
+            <button
+              type="button"
+              onClick={onLogDrink}
+              disabled={isPending}
+              className="w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border border-rose-700 bg-rose-950/40 text-rose-200 hover:border-rose-400 hover:bg-rose-900/60 transition-colors disabled:opacity-50"
+            >
+              🍷 Daniel drank · ${fineAmounts.drinking}
+              {hardMode && <span className="text-amber-300"> · 2×</span>}
+            </button>
+            <button
+              type="button"
+              onClick={onLogReview}
+              disabled={isPending}
+              className="w-full px-3 py-2 text-xs font-semibold uppercase tracking-widest border border-emerald-700 bg-emerald-950/40 text-emerald-200 hover:border-emerald-400 hover:bg-emerald-900/60 transition-colors disabled:opacity-50"
+            >
+              ✓ Sunday review done
+            </button>
+          </div>
         </div>
 
         {/* Fines */}

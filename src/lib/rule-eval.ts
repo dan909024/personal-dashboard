@@ -11,6 +11,10 @@
  *   strain     — Whoop daily strain < 12 on a "training day" (any Whoop
  *                workout ≥30 min on that calendar day). Untrained days are
  *                untouched — that's the gym rule's territory.
+ *   whoopdata  — no Whoop sleep data at all for the day (both wake AND bed empty)
+ *   review     — Sunday review wasn't stamped via /review or the panel button;
+ *                evaluated Mon–Sat for the most-recent past Sunday, idempotent
+ *                on (review, sundayDate)
  *   screentime — any Screen Time bucket exceeded its target
  *   worship    — Worship Log minutes for the day < worship_daily_target_min
  *   edges      — Edge Log count for the day < edges_daily_target
@@ -82,6 +86,12 @@ const SCREENTIME_MIN_DAYS = 5;
 /** Settings keys for the daily-target sliders Harley sets from the panel. */
 export const WORSHIP_DAILY_TARGET_MIN_KEY = "worship_daily_target_min";
 export const EDGES_DAILY_TARGET_KEY = "edges_daily_target";
+/**
+ * YYYY-MM-DD of the Sunday whose review Daniel last logged. Stamped by the
+ * /review Telegram command and the Goddess-panel button. The review rule
+ * fines $30 once per missed Sunday on Monday's rule-eval tick.
+ */
+export const LAST_SUNDAY_REVIEW_KEY = "last_sunday_review_date";
 
 export type FineAmounts = Record<HarleyRuleId, number>;
 
@@ -221,6 +231,62 @@ async function buildBedCandidates(today: string, amount: number): Promise<RuleEv
       periodStart: date,
       amount,
       reason: `Late bed (${score.detail}) — ${date}`,
+      setBy: "auto",
+    });
+  }
+  return candidates;
+}
+
+/**
+ * Sunday for which `/review` should stamp `last_sunday_review_date`. If
+ * today is Sunday, that's today; otherwise it's the most-recent past Sunday.
+ * Used by the panel button + Telegram handler so a Saturday "/review" tag
+ * doesn't trick rule-eval into thinking the upcoming Sunday review is done.
+ */
+export function currentOrPreviousSundayISO(today: string): string {
+  const dow = sydneyDayOfWeek(today);
+  if (dow === 0) return today;
+  return addDaysISO(today, -dow);
+}
+
+async function buildReviewCandidates(today: string, amount: number): Promise<RuleEvalCandidate[]> {
+  const dow = sydneyDayOfWeek(today);
+  // Today is Sunday — Daniel still has until end-of-day to log it. The 22:00
+  // Sydney cron can run before the review window closes; defer eval to Monday.
+  if (dow === 0) return [];
+  const lastSunday = addDaysISO(today, -dow);
+  const stamped = String((await getSetting(LAST_SUNDAY_REVIEW_KEY)) || "").trim();
+  // Sunday is missed when the most recent stamp predates that Sunday's date.
+  // Lexicographic comparison works on YYYY-MM-DD strings.
+  if (stamped >= lastSunday) return [];
+  return [
+    {
+      ruleId: "review",
+      periodStart: lastSunday,
+      amount,
+      reason: `Skipped Sunday review — ${lastSunday}`,
+      setBy: "auto",
+    },
+  ];
+}
+
+async function buildWhoopDataCandidates(today: string, amount: number): Promise<RuleEvalCandidate[]> {
+  const rows = await getRecentWhoopDaily(DAILY_LOOKBACK + 1);
+  const byDate = new Map(rows.map((r) => [r.date, r]));
+  const candidates: RuleEvalCandidate[] = [];
+  for (const date of dailyDates(today)) {
+    const row = byDate.get(date);
+    // Treat as missing only when both wake AND bed are blank — Whoop usually
+    // delivers both or neither for a given day. A row that exists with one
+    // populated still counts as "data present" so a partial sync isn't fined.
+    const hasWake = row && String(row.wakeTime ?? "").trim() !== "";
+    const hasBed = row && String(row.bedTime ?? "").trim() !== "";
+    if (hasWake || hasBed) continue;
+    candidates.push({
+      ruleId: "whoopdata",
+      periodStart: date,
+      amount,
+      reason: `No Whoop sleep data — ${date}`,
       setBy: "auto",
     });
   }
@@ -485,6 +551,8 @@ export async function evaluateRulesAndFine(
   candidates.push(...(await buildWakeCandidates(today, amounts.wake)));
   candidates.push(...(await buildBedCandidates(today, amounts.bed)));
   candidates.push(...(await buildStrainCandidates(today, amounts.strain)));
+  candidates.push(...(await buildWhoopDataCandidates(today, amounts.whoopdata)));
+  candidates.push(...(await buildReviewCandidates(today, amounts.review)));
   candidates.push(...(await buildScreentimeCandidates(today, amounts.screentime)));
   if (amounts.worship > 0) {
     candidates.push(...(await buildWorshipCandidates(today, amounts.worship)));

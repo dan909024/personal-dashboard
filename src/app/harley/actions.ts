@@ -12,6 +12,7 @@ import {
   readDenialEndDate,
   setDenialEndDate,
   setSetting,
+  todaySydneyISO,
   voidPunishment,
 } from "@/lib/sheets";
 import {
@@ -26,7 +27,9 @@ import {
 } from "@/lib/harley-rules";
 import {
   EDGES_DAILY_TARGET_KEY,
+  LAST_SUNDAY_REVIEW_KEY,
   WORSHIP_DAILY_TARGET_MIN_KEY,
+  currentOrPreviousSundayISO,
 } from "@/lib/rule-eval";
 import { verifyJWT } from "@/lib/jwt";
 import { sendDanTelegram } from "@/lib/telegram";
@@ -407,6 +410,27 @@ export async function logDrinkAction(): Promise<
     );
     revalidateAll();
     return { ok: true, finalAmount, doubled: hardMode };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/**
+ * Stamp `last_sunday_review_date` with the current-or-previous Sunday's date,
+ * marking that Daniel did the Sunday review. Both this action and the
+ * Telegram /review command write the same Settings key, and rule-eval reads
+ * it before deciding whether to fine for the most-recent past Sunday.
+ */
+export async function logSundayReviewAction(): Promise<
+  { ok: true; sundayDate: string } | { ok: false; error: string }
+> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  try {
+    const sunday = currentOrPreviousSundayISO(todaySydneyISO());
+    await setSetting(LAST_SUNDAY_REVIEW_KEY, sunday, "harley-admin");
+    await appendGoddessAudit("review-stamped", sunday);
+    revalidateAll();
+    return { ok: true, sundayDate: sunday };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

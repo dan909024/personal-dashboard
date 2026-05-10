@@ -58,11 +58,17 @@ import {
   isConfigured,
   readDenialEndDate,
   setDenialEndDate,
+  setSetting,
+  todaySydneyISO,
 } from "@/lib/sheets";
 import {
   DEFAULT_FINE_AMOUNTS,
   fineAmountSettingKey,
 } from "@/lib/harley-rules";
+import {
+  LAST_SUNDAY_REVIEW_KEY,
+  currentOrPreviousSundayISO,
+} from "@/lib/rule-eval";
 import { uploadCoachPhoto } from "@/lib/coach-photo";
 
 export const runtime = "nodejs";
@@ -189,6 +195,9 @@ const INFO_TEXT = `🤖 BOT COMMANDS
 
 /drank — Daniel logs a drink. Auto-fines at the
   drinking-rule amount ($100 default; respects hard-mode 2×).
+
+/review — Daniel stamps the Sunday review for this
+  week. Skip and rule-eval fines $30 at Mon 22:00 Sydney.
 
 📷 photo (sent by Harley) — replaces Daniel's coach photo
   on the dashboard.
@@ -407,6 +416,35 @@ export async function POST(req: NextRequest) {
       console.error("[telegram webhook] /drank append failed:", (e as Error).message);
       if (botToken) {
         await reply(botToken, chatId, "❌ Failed to log drink. Check server logs.");
+      }
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  if (text === "/review" || text.startsWith("/review ") || text.startsWith("/review@")) {
+    if (!isAuthorizedFineChat(chatId)) {
+      return NextResponse.json({ ok: true });
+    }
+    if (!isConfigured()) {
+      if (botToken) await reply(botToken, chatId, "❌ Sheets not configured.");
+      return NextResponse.json({ ok: true });
+    }
+    try {
+      const sunday = currentOrPreviousSundayISO(todaySydneyISO());
+      await setSetting(LAST_SUNDAY_REVIEW_KEY, sunday, "telegram");
+      revalidatePath("/");
+      revalidatePath("/harley");
+      if (botToken) {
+        await reply(
+          botToken,
+          chatId,
+          `✓ Sunday review stamped for ${sunday}. The review rule is satisfied for that week.`
+        );
+      }
+    } catch (e) {
+      console.error("[telegram webhook] /review failed:", (e as Error).message);
+      if (botToken) {
+        await reply(botToken, chatId, "❌ Failed to stamp review. Check server logs.");
       }
     }
     return NextResponse.json({ ok: true });
