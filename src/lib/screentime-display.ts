@@ -56,8 +56,42 @@ export const APP_DISPLAY_NAMES: Record<string, string> = {
   "md.obsidian": "Obsidian",
 };
 
+// Friendly-name aliases for the iPhone UI scrape (`mac_ui_iphone`),
+// which delivers App Store-style names like "Telegram Messenger" or
+// "Revolut: Spend, send and save". Without these aliases the dedup
+// in dedupeAppsPreferMac would key on (date, "Telegram Messenger")
+// and (date, "Telegram") separately, leaving the same app appearing
+// twice on the dashboard. Map each long form to the short canonical
+// name that bundle-id resolution produces, so they collapse.
+//
+// Add a new entry whenever a UI-scrape row appears on /screentime
+// alongside a bundle-id row of the same app.
+export const APP_NAME_ALIASES: Record<string, string> = {
+  "Telegram Messenger": "Telegram",
+  "Revolut: Spend, send and save": "Revolut",
+  "Linkedin: Professional Network": "LinkedIn",
+  "Uber Eats: Food & Groceries": "Uber Eats",
+  "Sportsbet - Sports Betting App": "Sportsbet",
+  "NBA - Live basketball games": "NBA",
+  "Frollo - Feel good about money": "Frollo",
+  "Up — Easy Money": "Up",
+  "Depop - Buy & Sell Clothing": "Depop",
+  "EatClub - Restaurant Deals": "EatClub",
+  "Gmail – email by Google": "Gmail",
+  "Friend Controls: Screen Time": "Friend Controls",
+  "NordVPN: VPN for privacy": "NordVPN",
+  "Grok - AI Assistant": "Grok",
+  "Real - Sports": "Real",
+  "LADDER Strength Training Plans": "LADDER",
+  "WHOOP": "WHOOP",
+};
+
 export function displayAppName(label: string): string {
-  return APP_DISPLAY_NAMES[label] ?? label;
+  // First: bundle id → friendly name (Mac/iOS bundle id rows).
+  if (APP_DISPLAY_NAMES[label]) return APP_DISPLAY_NAMES[label];
+  // Second: long App-Store form → short canonical (UI scrape rows).
+  if (APP_NAME_ALIASES[label]) return APP_NAME_ALIASES[label];
+  return label;
 }
 
 export function fmtPhoneMinutes(m: number): string {
