@@ -78,7 +78,8 @@ export default function DenialClock({ totalEdgesEver }: { totalEdgesEver: number
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke="rgb(76 5 25 / 0.6)"
+            stroke="var(--color-bloom-900)"
+            strokeOpacity={0.7}
             strokeWidth={stroke}
           />
           <circle
@@ -86,7 +87,7 @@ export default function DenialClock({ totalEdgesEver }: { totalEdgesEver: number
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke="rgb(251 113 133)"
+            stroke="var(--color-bloom-300)"
             strokeWidth={stroke}
             strokeLinecap="round"
             strokeDasharray={circumference}
@@ -94,16 +95,16 @@ export default function DenialClock({ totalEdgesEver }: { totalEdgesEver: number
             style={{ transition: "stroke-dashoffset 600ms ease-out" }}
           />
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-rose-100 leading-none tabular-nums">
-          <span className="text-xl font-semibold tracking-tight">{r.days}d</span>
-          <span className="text-[10px] text-rose-200/80 mt-0.5">
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-bloom-100 leading-none tabular-nums">
+          <span className="brand-serif text-xl font-semibold tracking-tight">{r.days}d</span>
+          <span className="text-[10px] text-bloom-200/80 mt-0.5">
             {pad2(r.hours)}h {pad2(r.minutes)}m {pad2(r.seconds)}s
           </span>
         </div>
       </div>
-      <div className="text-[10px] uppercase tracking-widest text-rose-200/70">
+      <div className="text-[10px] uppercase tracking-widest text-bloom-200/70">
         Total edges:{" "}
-        <span className="text-rose-100 font-semibold">{totalEdgesEver}</span>
+        <span className="text-bloom-100 font-semibold">{totalEdgesEver}</span>
       </div>
     </div>
   );

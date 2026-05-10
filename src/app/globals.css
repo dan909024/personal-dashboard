@@ -1,6 +1,82 @@
 @import "tailwindcss";
 
+/*
+ * Brand: "Roses & Iron"
+ * Pulled from the coach photo — cobalt polo, pink roses,
+ * sage foliage / polo stripe, ivory headband + cream stucco,
+ * black wrought-iron fence. Disciplined femininity.
+ */
+@theme {
+  --color-coach-50: #eaf1fb;
+  --color-coach-100: #c8daf2;
+  --color-coach-200: #95b6e6;
+  --color-coach-300: #5d8edb;
+  --color-coach-400: #366fcf;
+  --color-coach: #1f5fc7;
+  --color-coach-600: #1a4ea3;
+  --color-coach-700: #163e84;
+  --color-coach-800: #112e62;
+  --color-coach-900: #0d2148;
+
+  --color-bloom-50: #fbeef1;
+  --color-bloom-100: #f5d1da;
+  --color-bloom-200: #ecaab9;
+  --color-bloom-300: #e08a9f;
+  --color-bloom: #d9758f;
+  --color-bloom-600: #b85574;
+  --color-bloom-700: #8e3852;
+  --color-bloom-800: #5e2436;
+  --color-bloom-900: #381521;
+
+  --color-sage-50: #eef3ee;
+  --color-sage-100: #cfddd2;
+  --color-sage-200: #aec4b3;
+  --color-sage-300: #8eab95;
+  --color-sage: #6f9b78;
+  --color-sage-600: #547a5d;
+  --color-sage-700: #3d5b44;
+  --color-sage-800: #2a4030;
+  --color-sage-900: #19271d;
+
+  --color-ivory-50: #fbf6e9;
+  --color-ivory-100: #f3e7cc;
+  --color-ivory: #ecdab2;
+  --color-ivory-300: #d8c499;
+  --color-ivory-400: #b09e74;
+
+  --color-iron-50: #5b6068;
+  --color-iron-100: #3e424a;
+  --color-iron-200: #2c2f36;
+  --color-iron: #1c1f25;
+  --color-iron-600: #14171c;
+  --color-iron-700: #0e1014;
+
+  --color-ink: #0a0d12;
+  --color-ink-deep: #06080c;
+
+  --font-serif: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+}
+
 body {
-  background: #0a0a0a;
-  color: #ffffff;
+  background: var(--color-ink);
+  color: var(--color-ivory-50);
+}
+
+/* Brand wordmark + tile titles use Fraunces. The .brand-serif utility
+   gives Fraunces with a slight optical size + softer style so it reads
+   editorial rather than stiff. */
+.brand-serif {
+  font-family: var(--font-serif);
+  font-optical-sizing: auto;
+  font-variation-settings: "SOFT" 50, "opsz" 36;
+  letter-spacing: -0.01em;
+}
+
+/* Subtle iron-vignette background — a near-black with a faint
+   cobalt cast, used as the page fallback under the photo overlay. */
+.bg-iron-vignette {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(31, 95, 199, 0.10), transparent 40%),
+    radial-gradient(circle at 80% 100%, rgba(217, 117, 143, 0.08), transparent 50%),
+    var(--color-ink);
 }
