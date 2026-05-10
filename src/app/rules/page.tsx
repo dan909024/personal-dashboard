@@ -220,6 +220,8 @@ export default function RulesPage() {
                 <li>wake — $10 / failed day (post 06:00)</li>
                 <li>bed — $15 / failed day</li>
                 <li>strain — $15 / failed training day</li>
+                <li>whoopdata — $30 / day with no Whoop sleep data</li>
+                <li>review — $30 / missed Sunday review (Mon eval)</li>
                 <li>screentime — $10 / failed day (any bucket over)</li>
                 <li>worship — $0 / failed day (dormant — Harley sets target)</li>
                 <li>edges — $0 / failed day (dormant — Harley sets target)</li>
@@ -234,6 +236,19 @@ export default function RulesPage() {
                 Daily Whoop strain must be ≥12/21 on those days; otherwise that
                 day gets fined the next eval cycle. Days without a workout aren&rsquo;t
                 fined here — that&rsquo;s the gym rule&rsquo;s job.
+              </p>
+              <p className="text-zinc-500 mt-2 text-xs">
+                <strong>whoopdata</strong>: a day fines $30 only when BOTH wake
+                AND bed are blank in Whoop Daily — a partial sync (one populated)
+                still passes. Catches the &ldquo;forgot to wear the band&rdquo; case
+                without false-positives during ingestion lag.
+              </p>
+              <p className="text-zinc-500 mt-2 text-xs">
+                <strong>review</strong>: stamp the most-recent Sunday by tapping{" "}
+                <em>Sunday review done</em> on the Goddess panel or DM{" "}
+                <code className="bg-black/40 px-1">/review</code> from Daniel&rsquo;s
+                Telegram. The cron only evaluates Mon–Sat (gives until end-of-day
+                Sunday before fining).
               </p>
               <p className="text-zinc-500 mt-2 text-xs">
                 Daily rules look back 7 days each run (catch-up safe). Weekly

@@ -27,6 +27,8 @@ export type HarleyRuleId =
   | "worship"
   | "edges"
   | "drinking"
+  | "whoopdata"
+  | "review"
   | "slip";
 
 export type HarleyRule = {
@@ -48,6 +50,8 @@ export const HARLEY_RULES: Record<HarleyRuleId, HarleyRule> = {
   worship: { id: "worship", label: "Daily worship target", source: "Worship Log · daily target slider" },
   edges: { id: "edges", label: "Daily edges target", source: "Edge Log · daily target slider" },
   drinking: { id: "drinking", label: "Drank alcohol", source: "Telegram /drank · panel button (manual)" },
+  whoopdata: { id: "whoopdata", label: "Whoop data missing", source: "Whoop Daily · empty wake & bed for the day" },
+  review: { id: "review", label: "Sunday review skipped", source: "Telegram /review · panel button (manual log)" },
   slip: { id: "slip", label: "Cumming without permission", source: "WeaknessAltar Slipped button" },
 };
 
@@ -74,6 +78,8 @@ export const DEFAULT_FINE_AMOUNTS: Record<HarleyRuleId, number> = {
   worship: 0,
   edges: 0,
   drinking: 100,
+  whoopdata: 30,
+  review: 30,
   slip: 20,
 };
 
