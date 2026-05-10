@@ -12,6 +12,8 @@ import {
   getDashboardWhoopWorkouts,
   getDashboardTransactions,
   getDashboardNutrition,
+  getDrinkingStats,
+  type DrinkingStats,
   type SystemHealth,
   type SleepEdit,
   type DashboardAppleHealth,
@@ -244,6 +246,7 @@ export default async function Dashboard({
     nutrition,
     coachPhotoUrl,
     worshipTotals,
+    drinking,
   ] = await Promise.all([
     configured ? getOpenTasks(3) : Promise.resolve([]),
     configured ? getHarleyBalance() : Promise.resolve(null as HarleyBalance | null),
@@ -272,6 +275,9 @@ export default async function Dashboard({
     configured
       ? getWorshipTotals()
       : Promise.resolve(null as WorshipTotals | null),
+    configured
+      ? getDrinkingStats()
+      : Promise.resolve(null as DrinkingStats | null),
   ]);
 
   const calendarConfigured = isCalendarConfigured();
@@ -538,6 +544,10 @@ export default async function Dashboard({
           <Tile title="WORSHIP TOTALS">
             <WorshipTotalsTile configured={configured} totals={worshipTotals} />
           </Tile>
+
+          <Tile title="DRANK ALCOHOL">
+            <DrinkingTile data={drinking} configured={configured} />
+          </Tile>
         </div>
 
         {/* Harley calendar — events Harley adds to the shared `weekly` calendar */}
@@ -745,6 +755,65 @@ function fmtWorshipDuration(min: number): string {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+function DrinkingTile({
+  configured,
+  data,
+}: {
+  configured: boolean;
+  data: DrinkingStats | null;
+}) {
+  if (!configured) {
+    return (
+      <>
+        <p className="text-3xl font-bold text-emerald-300 mb-2">12d</p>
+        <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">
+          Sober streak
+        </p>
+        <p className="text-xs text-zinc-400">0 this week · 1 lifetime</p>
+      </>
+    );
+  }
+  if (!data) return <NoData />;
+  const { thisWeekCount, daysSinceLastDrink, totalCount, lastDrinkDate } = data;
+  const streakDisplay =
+    daysSinceLastDrink === null ? "∞" : `${daysSinceLastDrink}d`;
+  const headlineColor =
+    daysSinceLastDrink === null || daysSinceLastDrink >= 7
+      ? "text-emerald-300"
+      : daysSinceLastDrink >= 3
+      ? "text-amber-300"
+      : "text-rose-300";
+  return (
+    <>
+      <p className={`text-3xl font-bold ${headlineColor} mb-2`}>{streakDisplay}</p>
+      <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">
+        Sober streak
+      </p>
+      <div className="space-y-0.5 text-xs text-zinc-400">
+        <div className="flex justify-between">
+          <span>This week</span>
+          <span
+            className={`font-mono ${
+              thisWeekCount > 0 ? "text-rose-300" : "text-zinc-200"
+            }`}
+          >
+            {thisWeekCount}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span>Lifetime</span>
+          <span className="text-zinc-200 font-mono">{totalCount}</span>
+        </div>
+        {lastDrinkDate && (
+          <p className="text-[10px] text-zinc-500 italic pt-1">
+            Last: {lastDrinkDate.slice(5)}
+          </p>
+        )}
+      </div>
+    </>
+  );
 }
 
 function WorshipTotalsTile({

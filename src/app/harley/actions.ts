@@ -19,6 +19,7 @@ import {
   isCalendarConfigured,
 } from "@/lib/calendar";
 import {
+  DEFAULT_FINE_AMOUNTS,
   HARLEY_RULES,
   fineAmountSettingKey,
   type HarleyRuleId,
@@ -369,6 +370,43 @@ export async function setHardModeAction(
     await appendGoddessAudit("hard-mode", enabled ? "ON" : "OFF");
     revalidateAll();
     return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/**
+ * Log a "drank alcohol" event from the Goddess panel button. Appends a
+ * Punishments row stamped with rule_id=drinking at the rule's live fine
+ * amount. The drinking rule is manual-only — no auto-eval — so this
+ * action and the Telegram /drank command are the only ways for it to fire.
+ */
+export async function logDrinkAction(): Promise<
+  { ok: true; finalAmount: number; doubled: boolean } | { ok: false; error: string }
+> {
+  if (!(await authorized())) return { ok: false, error: "unauthorized" };
+  try {
+    const amountRaw = await getSetting(fineAmountSettingKey("drinking"));
+    const parsed = Number(amountRaw);
+    const fineAmount =
+      Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_FINE_AMOUNTS.drinking;
+    const hardMode =
+      String((await getSetting("hard_mode")) ?? "")
+        .trim()
+        .toLowerCase() === "yes";
+    const finalAmount = hardMode ? fineAmount * 2 : fineAmount;
+    await appendPunishment({
+      amount: finalAmount,
+      reason: hardMode ? "Drank alcohol (hard-mode 2×)" : "Drank alcohol",
+      setBy: "Harley (panel)",
+      ruleId: "drinking",
+    });
+    await appendGoddessAudit(
+      "drank",
+      `$${finalAmount}${hardMode ? " (2×)" : ""}`
+    );
+    revalidateAll();
+    return { ok: true, finalAmount, doubled: hardMode };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

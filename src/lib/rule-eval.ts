@@ -17,8 +17,8 @@
  * without code changes.
  *
  * Weekly rules (one fine per failed Mon-Sun, evaluated on Sundays):
- *   gym     — < 4 Whoop workouts
- *   steps   — < 70k Apple Health steps
+ *   gym     — < 4 Whoop workouts; fine = $25 × shortfall (e.g. 2/4 done = $50)
+ *   steps   — fine = $10 × days under 10k steps that week
  *   water   — < 3.3 L Apple Health waterMl daily average
  *   writing — < writing_target_hr_per_week (default 8) of Obsidian foreground time
  *   protein — < 5 days of ≥ nutrition_protein_target_g dietary protein
@@ -49,7 +49,7 @@ import {
   WAKE_BY_MIN,
   BED_BY_MIN,
   GYM_TARGET_PER_WEEK,
-  STEPS_TARGET_PER_WEEK,
+  STEPS_TARGET_PER_DAY,
   WATER_TARGET_ML_PER_DAY,
   WRITING_BUNDLE_ID,
   WRITING_TARGET_HR_DEFAULT,
@@ -224,11 +224,15 @@ async function buildBedCandidates(today: string, amount: number): Promise<RuleEv
 async function buildGymCandidate(weekStart: string, weekEnd: string, amount: number): Promise<RuleEvalCandidate | null> {
   const count = await countWhoopWorkoutsInRange(weekStart, weekEnd);
   if (count >= GYM_TARGET_PER_WEEK) return null;
+  // Fine scales with the shortfall: $25 per missed session below the weekly
+  // target. Matches the spreadsheet's "$25 per missed day" framing without
+  // moving to a daily evaluation cadence.
+  const shortfall = GYM_TARGET_PER_WEEK - count;
   return {
     ruleId: "gym",
     periodStart: weekStart,
-    amount,
-    reason: `Missed gym target (${count}/${GYM_TARGET_PER_WEEK}) — week of ${weekStart}`,
+    amount: amount * shortfall,
+    reason: `Missed gym target (${count}/${GYM_TARGET_PER_WEEK}) — week of ${weekStart} · ${shortfall} short × $${amount}`,
     setBy: "auto",
   };
 }
@@ -247,13 +251,20 @@ async function buildStepsCandidate(weekStart: string, weekEnd: string, amount: n
   const rows = filterRowsInRange(await getRecentAppleHealth(14), weekStart, weekEnd);
   const daysWithSteps = rows.filter((r) => (r.steps || 0) > 0).length;
   if (daysWithSteps < APPLE_HEALTH_MIN_DAYS) return null;
+  // Fine scales per missed day below the daily floor — $10 × days_under_10k.
+  // Days with zero logged steps are skipped (likely ingestion lapses, not
+  // actual zero days). Single Punishments row per week, idempotent on
+  // (steps, weekStart).
+  const daysUnderTarget = rows.filter(
+    (r) => (r.steps || 0) > 0 && (r.steps || 0) < STEPS_TARGET_PER_DAY
+  ).length;
+  if (daysUnderTarget === 0) return null;
   const total = rows.reduce((s, r) => s + (r.steps || 0), 0);
-  if (total >= STEPS_TARGET_PER_WEEK) return null;
   return {
     ruleId: "steps",
     periodStart: weekStart,
-    amount,
-    reason: `Missed steps target (${total.toLocaleString("en-AU")}/${STEPS_TARGET_PER_WEEK.toLocaleString("en-AU")}) — week of ${weekStart}`,
+    amount: amount * daysUnderTarget,
+    reason: `${daysUnderTarget} day${daysUnderTarget === 1 ? "" : "s"} under ${STEPS_TARGET_PER_DAY.toLocaleString("en-AU")} steps (week total ${total.toLocaleString("en-AU")}) — week of ${weekStart} · ${daysUnderTarget} × $${amount}`,
     setBy: "auto",
   };
 }

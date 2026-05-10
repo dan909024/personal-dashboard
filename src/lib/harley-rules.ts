@@ -25,6 +25,7 @@ export type HarleyRuleId =
   | "protein"
   | "worship"
   | "edges"
+  | "drinking"
   | "slip";
 
 export type HarleyRule = {
@@ -34,7 +35,7 @@ export type HarleyRule = {
 };
 
 export const HARLEY_RULES: Record<HarleyRuleId, HarleyRule> = {
-  wake: { id: "wake", label: "Wake by 06:30", source: "Whoop sleep onset" },
+  wake: { id: "wake", label: "Wake by 06:00", source: "Whoop sleep onset" },
   bed: { id: "bed", label: "Bed by 22:30", source: "Whoop sleep start" },
   gym: { id: "gym", label: "Gym 4+ /week", source: "Whoop Workouts" },
   steps: { id: "steps", label: "70k steps /week", source: "Apple Health" },
@@ -44,6 +45,7 @@ export const HARLEY_RULES: Record<HarleyRuleId, HarleyRule> = {
   protein: { id: "protein", label: "Protein 5+ days /week", source: "Apple Health · dietaryProtein" },
   worship: { id: "worship", label: "Daily worship target", source: "Worship Log · daily target slider" },
   edges: { id: "edges", label: "Daily edges target", source: "Edge Log · daily target slider" },
+  drinking: { id: "drinking", label: "Drank alcohol", source: "Telegram /drank · panel button (manual)" },
   slip: { id: "slip", label: "Cumming without permission", source: "WeaknessAltar Slipped button" },
 };
 
@@ -59,15 +61,16 @@ export const HARLEY_RULES: Record<HarleyRuleId, HarleyRule> = {
  */
 export const DEFAULT_FINE_AMOUNTS: Record<HarleyRuleId, number> = {
   wake: 10,
-  bed: 10,
+  bed: 15,
   gym: 25,
-  steps: 20,
+  steps: 10,
   water: 20,
   writing: 30,
   screentime: 10,
   protein: 20,
   worship: 0,
   edges: 0,
+  drinking: 100,
   slip: 20,
 };
 

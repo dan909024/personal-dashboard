@@ -34,7 +34,7 @@ type Rule = {
 const HARLEY_METER_RULES: Rule[] = [
   {
     id: "wake",
-    title: "Wake by 06:30",
+    title: "Wake by 06:00",
     threshold: `≤ ${fmtClock(WAKE_BY_MIN)} (Sydney)`,
     source: "Whoop sleep onset",
     weight: "1/5",
@@ -58,10 +58,11 @@ const HARLEY_METER_RULES: Rule[] = [
   },
   {
     id: "steps",
-    title: "Weekly step volume",
-    threshold: `${STEPS_TARGET_PER_WEEK.toLocaleString()} steps / 7 days`,
+    title: "Daily step floor",
+    threshold: `10,000 steps / day (any day under counts as a missed day)`,
     source: "Apple Health (Auto Export)",
     weight: "1/5",
+    notes: "Meter scores fraction of weekly target hit. Fine fires weekly: $10 × number of days under 10k.",
   },
   {
     id: "water",
@@ -167,6 +168,27 @@ export default function RulesPage() {
               </p>
             </li>
             <li className="border border-[#222] bg-[#0f0f0f]/60 px-4 py-3 rounded">
+              <p className="font-semibold text-white">Drinking · <code className="bg-black/40 px-1">drinking</code> rule</p>
+              <p className="text-zinc-400 mt-1">
+                Manual-only — no auto-eval. Two ways to log a drink, both stamp
+                rule_id=drinking and respect hard-mode 2×:
+              </p>
+              <ul className="text-zinc-400 mt-2 ml-4 list-disc space-y-1">
+                <li>
+                  Goddess panel <strong>&ldquo;🍷 Daniel drank&rdquo;</strong> button.
+                </li>
+                <li>
+                  Telegram <code className="bg-black/40 px-1">/drank</code> from
+                  Daniel&rsquo;s DM. Same effect; replies with the dollar amount added.
+                </li>
+              </ul>
+              <p className="text-zinc-500 mt-2 text-xs">
+                Default $100/event; editable from the Goddess panel&rsquo;s Fine schedule.
+                Spreadsheet calls for $100 per offence given a 0.25 drinks/week budget —
+                a single drink is the offence.
+              </p>
+            </li>
+            <li className="border border-[#222] bg-[#0f0f0f]/60 px-4 py-3 rounded">
               <p className="font-semibold text-white">Telegram <code className="bg-black/40 px-1">/fine</code> command</p>
               <p className="text-zinc-400 mt-1">
                 Harley DMs <code className="bg-black/40 px-1">/fine 45 phone over 90min</code>{" "}
@@ -195,13 +217,13 @@ export default function RulesPage() {
                 <code className="bg-black/40 px-1">src/lib/rule-eval.ts</code>:
               </p>
               <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-zinc-400">
-                <li>wake — $10 / failed day</li>
-                <li>bed — $10 / failed day</li>
+                <li>wake — $10 / failed day (post 06:00)</li>
+                <li>bed — $15 / failed day</li>
                 <li>screentime — $10 / failed day (any bucket over)</li>
                 <li>worship — $0 / failed day (dormant — Harley sets target)</li>
                 <li>edges — $0 / failed day (dormant — Harley sets target)</li>
-                <li>gym — $25 / failed week</li>
-                <li>steps — $20 / failed week</li>
+                <li>gym — $25 × shortfall below 4 / week</li>
+                <li>steps — $10 × days under 10k / week</li>
                 <li>water — $20 / failed week</li>
                 <li>writing — $30 / failed week (&lt;8 hr Obsidian)</li>
                 <li>protein — $20 / failed week (&lt;5 days hit target)</li>
@@ -211,6 +233,11 @@ export default function RulesPage() {
                 rules only evaluate on Sunday night for the just-ending Mon–Sun;
                 activity logged 22:00–23:59 Sun rolls into the next week. Defaults
                 shown above; live amounts overridable from the Harley panel.
+                <br />
+                <strong>gym</strong>: e.g. only 2 of 4 sessions done = 2 × $25 = $50.
+                <strong>steps</strong>: e.g. 3 days under 10k = 3 × $10 = $30. One
+                Punishments row per week regardless of severity; the per-shortfall
+                math is baked into the row&rsquo;s amount.
                 <br />
                 <strong>worship</strong> and <strong>edges</strong> stay dormant
                 until BOTH the Daily targets slider on the Harley panel AND the
