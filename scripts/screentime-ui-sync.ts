@@ -169,51 +169,28 @@ function parseTimeToMinutes(s: string): number {
 
 // Privacy redaction — keep this dashboard work-presentable.
 //
-// We drop two row classes before they ever reach the Sheet:
+// We drop ANY row whose label contains a personal-identifier or
+// employer-term token: name, employer, work-product names. Match is
+// case-insensitive, on word boundaries, with an optional possessive
+// 's so "Daniel's iPhone" matches.
 //
-//   1. **Personal identifiers / employer terms.** Daniel uses this Mac
-//      for work; his name, employer, and work-product names must
-//      never appear in the dashboard / Sheet / commits / logs.
-//      Match is case-insensitive on whole words.
-//
-//   2. **Website domains** (Safari activity rows, e.g.
-//      "loyalfans.com", "gooz.aapmains.net"). The dashboard is
-//      "apps only" — browsing history is intentionally excluded
-//      so screen-shares at work don't reveal personal sites.
-//      Detection: row label looks like a hostname (contains a dot
-//      AND ends with a TLD-like suffix that isn't a bundle id —
-//      bundle ids start with "com." / "org." / etc. and have many
-//      dots; site domains usually end with a known TLD).
+// This applies to ALL labels — apps AND Safari website rows. So
+// `loyalfans.com` is fine, `daniel-personal-blog.com` is dropped.
+// Browsing-history rows themselves are intentionally NOT filtered
+// (the dashboard wants to show them).
 //
 // See memory file: feedback_personal_identifier_redaction.md
-// Match the personal name with an optional possessive 's so the
-// stripper handles "Daniel's iPhone" → "iPhone" cleanly. Use a
-// global flag for the stripper but a non-global flag for `.test()`
-// (test() with /g has stateful exec semantics — bug magnet).
+//
+// Use a non-global flag for `.test()` (test() with /g has stateful
+// exec semantics — bug magnet), and a global flag for stripping.
 const PERSONAL_REDACT_REGEX =
   /\b(avid|pubsuite|daniel|ferrari)(['’]s)?\b/i;
 const PERSONAL_REDACT_REGEX_GLOBAL =
   /\b(avid|pubsuite|daniel|ferrari)(['’]s)?\b/gi;
 
-const WEBSITE_TLD_REGEX =
-  /\.(com|net|org|io|app|co|me|tv|au|uk|us|ca|fm|gg|to|nz|info|biz|news)$/i;
-
 function redactionReason(label: string): string | null {
   if (PERSONAL_REDACT_REGEX.test(label)) return "personal_identifier";
-  if (looksLikeDomain(label)) return "website_domain";
   return null;
-}
-
-function looksLikeDomain(label: string): boolean {
-  // Bundle ids ("com.apple.Safari") have a leading "com." or similar
-  // reverse-DNS style, plus typically many dots. Site domains have
-  // a single name + TLD ("loyalfans.com") or up to 3 segments
-  // ("gooz.aapmains.net"). Heuristic: contains no spaces, has a
-  // TLD-like suffix, and DOESN'T start with "com." / "org." / etc.
-  if (/\s/.test(label)) return false;
-  if (!WEBSITE_TLD_REGEX.test(label)) return false;
-  if (/^(com|org|net|io|co|app|me|gov|edu)\./i.test(label)) return false;
-  return true;
 }
 
 function todayInTZ(): string {

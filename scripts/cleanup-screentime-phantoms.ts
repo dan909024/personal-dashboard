@@ -16,12 +16,11 @@
  *   2. Marks for deletion any mac_ui_iphone row that's EITHER:
  *        a) older than the latest syncedAt for its date (phantom from
  *           an earlier broken scrape); OR
- *        b) a label that the runtime redactor in
- *           screentime-ui-sync.ts would now reject — i.e. website
- *           domain rows like "loyalfans.com" (apps-only policy) and
- *           personal-identifier rows like "Daniel's iPhone" that
- *           landed before the redactor was added. See memory:
- *           feedback_personal_identifier_redaction.md.
+ *        b) contains a personal-identifier token that the runtime
+ *           redactor in screentime-ui-sync.ts would now reject. See
+ *           memory: feedback_personal_identifier_redaction.md.
+ *           (Website-domain rows like loyalfans.com are NOT filtered
+ *           — only labels matching the personal-identifier regex.)
  *   3. By default DRY-RUN: prints what would be deleted.
  *   4. With --execute: deletes via Sheets batchUpdate (deleteDimension
  *      from bottom up so indices stay stable).
@@ -87,19 +86,10 @@ function sheetsClient(): sheets_v4.Sheets {
 // feedback_personal_identifier_redaction.md.
 const PERSONAL_REDACT_REGEX =
   /\b(avid|pubsuite|daniel|ferrari)(['’]s)?\b/i;
-const WEBSITE_TLD_REGEX =
-  /\.(com|net|org|io|app|co|me|tv|au|uk|us|ca|fm|gg|to|nz|info|biz|news)$/i;
 
 function redactionReason(label: string): string | null {
   if (PERSONAL_REDACT_REGEX.test(label)) return "personal_identifier";
-  if (looksLikeDomain(label)) return "website_domain";
   return null;
-}
-function looksLikeDomain(label: string): boolean {
-  if (/\s/.test(label)) return false;
-  if (!WEBSITE_TLD_REGEX.test(label)) return false;
-  if (/^(com|org|net|io|co|app|me|gov|edu)\./i.test(label)) return false;
-  return true;
 }
 
 async function findScreenTimeSheetId(client: sheets_v4.Sheets): Promise<number> {
@@ -173,10 +163,11 @@ async function main() {
   }
 
   // Phantom rows: anything older than the latest syncedAt for its date.
-  // PLUS any row (latest or not) whose label would now be filtered by
-  // the runtime redactor in screentime-ui-sync.ts — these are the
-  // historical website / personal-identifier rows that landed before
-  // the filter was added. (See feedback_personal_identifier_redaction.)
+  // PLUS any row (latest or not) whose label matches the personal-
+  // identifier filter in screentime-ui-sync.ts — these are the
+  // historical name-leaking rows that landed before the filter was
+  // added. (See feedback_personal_identifier_redaction.) Website rows
+  // are intentionally kept — only personal-identifier matches drop.
   const toDelete = targetRows.filter((r) => {
     const isOlderBatch = r.syncedAt !== latestByDate.get(r.date);
     const isBadLabel = redactionReason(r.label) !== null;
