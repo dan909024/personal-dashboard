@@ -1,11 +1,17 @@
 /**
  * POST /api/telegram/webhook
  *
- * Inbound Telegram updates. Three flows handled:
+ * Inbound Telegram updates. Flows handled:
  *
  *   /start                   → replies with `chat_id: <id>` so
  *                              TRIPWIRE_TELEGRAM_CHAT_ID etc. can be
  *                              bootstrapped once.
+ *
+ *   /info                    → cheat-sheet message listing every bot
+ *                              command and every action available in
+ *                              the Goddess Control Panel. Same auth
+ *                              gate as /fine — we don't leak the
+ *                              feature surface to random chats.
  *
  *   /fine <amount> <reason>  → appends a row to the Punishments sheet.
  *                              Manual fines (rule_id empty). Restricted
@@ -159,6 +165,80 @@ function formatSydneyOffsetISO(d: Date): string {
   return `${datePart}${tz.replace("GMT", "")}`;
 }
 
+// Cheat-sheet sent by /info. Stays under Telegram's 4096-char text limit.
+// Update this in lockstep with src/app/harley/HarleyForm.tsx so the panel
+// description stays accurate as the panel evolves.
+const INFO_TEXT = `🤖 BOT COMMANDS
+
+/start — replies with this chat's ID.
+
+/info — this list.
+
+/add <days> — extends Daniel's denial period by N days.
+  Adds to the current target if still future, otherwise
+  starts a fresh window from now. Cap: 365.
+  Example: /add 7
+
+/fine <amount> <reason> — adds a fine to Daniel's balance.
+  Example: /fine 45 phone over 90min
+
+📷 photo (sent by Harley) — replaces Daniel's coach photo
+  on the dashboard.
+
+🌐 GODDESS CONTROL PANEL (/harley)
+
+Live state
+  • Allowed / Denied status with day counter
+  • Countdown to release · Owed Harley · Harley Meter
+
+Add time (quick buttons)
+  • +1hr · +12hr · +1d · +3d · +1wk · +2wk · +1mo · +3mo
+
+Override
+  • Allow now · Deny now · Clear denial target
+    (two-tap to fire)
+
+Dan's last 7 days
+  • Per-rule pass rate. Tap a failing rule to prefill a fine
+    for it.
+
+Fine schedule
+  • Edit the auto-fine $ for each rule. Applies to future
+    auto-fines and the Slipped button immediately.
+
+Fines
+  • Quick amounts: $5 / $10 / $25 / $50 / $100 / $200
+  • Custom amount + optional reason + optional rule attach
+
+Forgiveness
+  • Mark any unpaid fine as paid, or void it (delete row)
+  • Auto fines (his failings) and manual fines (your hand)
+    are listed separately
+  • Reset balance to $0 (two-tap)
+
+Set exact date
+  • Pick a Sydney date/time — replaces the current target
+
+Sync now
+  • Pulls fresh Whoop data and emails Daniel a manual-asks
+    list for everything else
+
+Add calendar task
+  • Creates an event on Daniel's shared calendar; counts
+    toward the harley-tasks rule once its start time passes
+
+Message Daniel
+  • Telegram DM, prefixed "🩷 Goddess:"
+  • Presets: Edge for me now · Good boy · Disappointed ·
+    Knees, now
+
+Hard mode
+  • Toggle: doubles every fine while ON. Monthly fee
+    excluded.
+
+Recent panel activity
+  • Audit log of the last actions taken from the panel.`;
+
 function formatSydneyHuman(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
@@ -216,6 +296,14 @@ export async function POST(req: NextRequest) {
     } else {
       console.warn("[telegram webhook] TELEGRAM_BOT_TOKEN missing — skipping reply.");
     }
+    return NextResponse.json({ ok: true });
+  }
+
+  if (text === "/info" || text.startsWith("/info@")) {
+    if (!isAuthorizedFineChat(chatId)) {
+      return NextResponse.json({ ok: true });
+    }
+    if (botToken) await reply(botToken, chatId, INFO_TEXT);
     return NextResponse.json({ ok: true });
   }
 
