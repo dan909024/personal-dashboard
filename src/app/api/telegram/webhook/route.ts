@@ -15,6 +15,13 @@
  *                                - TRIPWIRE_TELEGRAM_CHAT_ID (bootstrap fallback)
  *                              Replies with confirmation or parse error.
  *
+ *   /add <days>              → extends the Denial Tracker target by N days.
+ *                              Same auth gate as /fine. Mirrors the panel's
+ *                              extendDenialAction: extends the current target
+ *                              if still future, otherwise starts a fresh
+ *                              window from now. Replies with the new release
+ *                              datetime.
+ *
  *   photo                    → if the SENDER is HARLEY_TELEGRAM_USER_ID
  *                              (falling back to HARLEY_TELEGRAM_CHAT_ID),
  *                              uploads the photo to Vercel Blob under
@@ -35,8 +42,16 @@
  * setting the env var once the bot is in production use).
  */
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { TRIPWIRE_TELEGRAM_CHAT_ID } from "@/lib/harley-auth";
-import { appendPunishment, isConfigured } from "@/lib/sheets";
+import {
+  DENIAL_END_DATE_TAG,
+  appendGoddessAudit,
+  appendPunishment,
+  isConfigured,
+  readDenialEndDate,
+  setDenialEndDate,
+} from "@/lib/sheets";
 import { uploadCoachPhoto } from "@/lib/coach-photo";
 
 export const runtime = "nodejs";
@@ -110,6 +125,55 @@ function parseFineCommand(text: string): { amount: number; reason: string } | nu
   return { amount, reason };
 }
 
+/**
+ * Parse "/add 7" or "/add 1.5" → 7 / 1.5 (days). Returns null if the
+ * value is not a positive finite number. Caps at 365 to block fat-finger.
+ */
+function parseAddDaysCommand(text: string): number | null {
+  const m = text.match(/^\/add(?:@\w+)?\s+(\S+)\s*$/i);
+  if (!m) return null;
+  const days = Number(m[1]);
+  if (!Number.isFinite(days) || days <= 0 || days > 365) return null;
+  return days;
+}
+
+function formatSydneyOffsetISO(d: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  const hour = get("hour") === "24" ? "00" : get("hour");
+  const datePart = `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}:${get("second")}`;
+  const tzParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Australia/Sydney",
+    timeZoneName: "longOffset",
+  }).formatToParts(d);
+  const tz = tzParts.find((p) => p.type === "timeZoneName")?.value ?? "GMT+10:00";
+  return `${datePart}${tz.replace("GMT", "")}`;
+}
+
+function formatSydneyHuman(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Sydney",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(d);
+}
+
 export async function POST(req: NextRequest) {
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
   if (expectedSecret) {
@@ -151,6 +215,58 @@ export async function POST(req: NextRequest) {
       await reply(botToken, chatId, `chat_id: ${chatId}`);
     } else {
       console.warn("[telegram webhook] TELEGRAM_BOT_TOKEN missing — skipping reply.");
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  if (text === "/add" || text.startsWith("/add ") || text.startsWith("/add@")) {
+    if (!isAuthorizedFineChat(chatId)) {
+      return NextResponse.json({ ok: true });
+    }
+    if (!isConfigured()) {
+      if (botToken) await reply(botToken, chatId, "❌ Sheets not configured.");
+      return NextResponse.json({ ok: true });
+    }
+    const days = parseAddDaysCommand(text);
+    if (days === null) {
+      if (botToken) {
+        await reply(
+          botToken,
+          chatId,
+          "Usage: /add <days>\nExample: /add 7"
+        );
+      }
+      return NextResponse.json({ ok: true });
+    }
+    try {
+      // Mirrors extendDenialAction: extend the active window if it's still
+      // future, otherwise start a fresh window from now.
+      const current = await readDenialEndDate();
+      const nowMs = Date.now();
+      let baseMs = nowMs;
+      if (current) {
+        const ms = Date.parse(current);
+        if (!isNaN(ms) && ms > nowMs) baseMs = ms;
+      }
+      const newMs = baseMs + days * 86_400_000;
+      const newEndDate = formatSydneyOffsetISO(new Date(newMs));
+      await setDenialEndDate(newEndDate);
+      await appendGoddessAudit("extend", `+${days}d → ${newEndDate} (Telegram)`);
+      revalidateTag(DENIAL_END_DATE_TAG);
+      revalidatePath("/");
+      revalidatePath("/harley");
+      if (botToken) {
+        await reply(
+          botToken,
+          chatId,
+          `🔒 +${days} day${days === 1 ? "" : "s"} added.\nNew release: ${formatSydneyHuman(newEndDate)}`
+        );
+      }
+    } catch (e) {
+      console.error("[telegram webhook] /add failed:", (e as Error).message);
+      if (botToken) {
+        await reply(botToken, chatId, "❌ Failed to extend denial. Check server logs.");
+      }
     }
     return NextResponse.json({ ok: true });
   }

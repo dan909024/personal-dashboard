@@ -51,4 +51,4 @@
 // (`if (!HARLEY_EMAIL)`, `TRIPWIRE_TELEGRAM_CHAT_ID === 0`) don't get
 // flagged as tautologies once the literals are populated.
 export const HARLEY_EMAIL: string = "";
-export const TRIPWIRE_TELEGRAM_CHAT_ID: number = 6503455232;
+export const TRIPWIRE_TELEGRAM_CHAT_ID: number = -5107403001;
