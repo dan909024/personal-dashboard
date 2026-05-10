@@ -1484,8 +1484,12 @@ export const getHarleyBalance = unstable_cache(
       getRecentHarleyPayments(365),
     ]);
     const finesTotal = punishments.reduce((s, p) => s + p.amount, 0);
-    // Trust 1:1 USDT/USDC = $ for now; flag in PR if precision matters.
-    const paidTotal = payments.reduce((s, p) => s + p.amount, 0);
+    // Only USDT counts against fines. USDC is reserved for video
+    // purchases — those rows still get logged to Harley Payments
+    // (audit trail) but do not reduce owed. All amounts are USD,
+    // so the 1:1 USDT→USD assumption is exact.
+    const finePayments = payments.filter((p) => p.currency === "USDT");
+    const paidTotal = finePayments.reduce((s, p) => s + p.amount, 0);
     const merged: HarleyBalance["recentActivity"] = [
       ...punishments.map((p) => ({
         kind: "fine" as const,
@@ -1495,7 +1499,7 @@ export const getHarleyBalance = unstable_cache(
         setBy: p.setBy,
         ruleId: p.ruleId,
       })),
-      ...payments.map((p) => ({
+      ...finePayments.map((p) => ({
         kind: "payment" as const,
         date: p.date,
         amount: p.amount,
@@ -1507,7 +1511,7 @@ export const getHarleyBalance = unstable_cache(
       finesTotal,
       paidTotal,
       fineCount: punishments.length,
-      paymentCount: payments.length,
+      paymentCount: finePayments.length,
       recentActivity: merged,
     };
   },
