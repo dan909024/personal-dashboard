@@ -8,6 +8,7 @@
  * If env vars are missing, isConfigured() returns false and reader functions
  * return empty/null so the dashboard can degrade gracefully.
  */
+import { cache } from "react";
 import { google, sheets_v4 } from "googleapis";
 import { unstable_cache } from "next/cache";
 
@@ -345,32 +346,36 @@ async function withSheetsRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T
 /**
  * Read all rows from a tab. Returns rows AS-IS (header row included as rows[0]).
  * Returns null if the tab does not exist (caller can fall back).
+ *
+ * Wrapped in React's `cache()` so multiple callers reading the same tab
+ * within a single request share one Sheets API call — important for the
+ * Harley page which fans out to several functions that each touch the
+ * Settings tab. Memoization is request-scoped, not cross-request.
  */
-async function readTab(
-  tab: TabName
-): Promise<string[][] | null> {
-  if (!isConfigured()) return null;
-  try {
-    const client = sheetsClient();
-    const res = await withSheetsRetry(() =>
-      client.spreadsheets.values.get({
-        spreadsheetId: sheetId(),
-        range: `${tab}!A1:Z`,
-        valueRenderOption: "UNFORMATTED_VALUE",
-        dateTimeRenderOption: "FORMATTED_STRING",
-      })
-    );
-    return (res.data.values as string[][]) || [];
-  } catch (e) {
-    const msg = (e as Error).message || "";
-    // Missing tab → return null so the caller can show "no data yet"
-    if (msg.includes("Unable to parse range") || msg.includes("not found")) {
+const readTab = cache(
+  async (tab: TabName): Promise<string[][] | null> => {
+    if (!isConfigured()) return null;
+    try {
+      const client = sheetsClient();
+      const res = await withSheetsRetry(() =>
+        client.spreadsheets.values.get({
+          spreadsheetId: sheetId(),
+          range: `${tab}!A1:Z`,
+          valueRenderOption: "UNFORMATTED_VALUE",
+          dateTimeRenderOption: "FORMATTED_STRING",
+        })
+      );
+      return (res.data.values as string[][]) || [];
+    } catch (e) {
+      const msg = (e as Error).message || "";
+      if (msg.includes("Unable to parse range") || msg.includes("not found")) {
+        return null;
+      }
+      console.error(`[sheets] error reading tab ${tab}:`, msg);
       return null;
     }
-    console.error(`[sheets] error reading tab ${tab}:`, msg);
-    return null;
   }
-}
+);
 
 /**
  * Read multiple ranges in a single API call. Sheets bills batchGet as ONE
