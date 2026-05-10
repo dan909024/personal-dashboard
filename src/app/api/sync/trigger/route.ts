@@ -24,21 +24,29 @@ import { cookies } from "next/headers";
 import { verifyJWT } from "@/lib/jwt";
 import { runWhoopSync } from "@/lib/whoop-sync";
 import { sendEmail } from "@/lib/email";
-import { appendSyncTrigger } from "@/lib/sheets";
+import {
+  appendSyncTrigger,
+  isConfigured,
+  setScreentimeForceTriggerNow,
+} from "@/lib/sheets";
 import { sendDanTelegram, formatSyncManualAsksMessage } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Screen Time used to be a manual ask. It now auto-fires via the
+// Sheet trigger mailbox — the Mac launchd UI scraper picks the
+// timestamp up on its 2-min tick and bypasses idle/cooldown.
 const MANUAL_ASKS = [
   "Apple Health iOS Shortcut — tap play",
-  "Screen Time Mac launchd — auto every 4h, force with: launchctl kickstart -k gui/$(id -u)/com.danielferrari.screentime-sync",
 ] as const;
 
 type SyncResponse = {
   ok: boolean;
   whoop: "ok" | "error" | "not_connected" | "not_configured";
   whoopDetail?: string;
+  screentime: "queued" | "error" | "not_configured";
+  screentimeDetail?: string;
   manualAsks: string[];
   emailSent: boolean;
 };
@@ -91,10 +99,29 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResponse 
     console.error("[sync/trigger] whoop sync threw:", whoopDetail);
   }
 
-  // 2. Manual asks list — fixed for now.
+  // 2. Screen Time auto-trigger — write the force-trigger timestamp
+  // to the Sheet mailbox so Daniel's Mac launchd UI scraper picks
+  // it up on its 2-min tick and bypasses its idle/cooldown gates.
+  let screentime: SyncResponse["screentime"] = "queued";
+  let screentimeDetail: string | undefined;
+  if (!isConfigured()) {
+    screentime = "not_configured";
+    screentimeDetail = "Sheets env missing on server";
+  } else {
+    try {
+      const ts = await setScreentimeForceTriggerNow();
+      screentimeDetail = `Mac picks up in ≤2 min (${ts})`;
+    } catch (e) {
+      screentime = "error";
+      screentimeDetail = (e as Error).message.slice(0, 200);
+      console.error("[sync/trigger] screentime trigger threw:", screentimeDetail);
+    }
+  }
+
+  // 3. Manual asks list — fixed for now.
   const manualAsks = [...MANUAL_ASKS];
 
-  // 3. Email Daniel.
+  // 4. Email Daniel.
   let emailSent = false;
   const danEmail = process.env.DAN_EMAIL || "";
   if (danEmail) {
@@ -103,11 +130,13 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResponse 
       whoop === "ok"
         ? `Whoop: synced (${whoopDetail || "no details"})`
         : `Whoop: ${whoop}${whoopDetail ? ` — ${whoopDetail}` : ""}`;
+    const screentimeLine = `Screen Time scrape: ${screentime}${screentimeDetail ? ` — ${screentimeDetail}` : ""}`;
     const askLines = manualAsks.map((a) => `  • ${a}`).join("\n");
     const text = [
       "Harley pressed the sync-now button.",
       "",
       whoopLine,
+      screentimeLine,
       "",
       "Manual asks (fire these on your devices):",
       askLines,
@@ -118,6 +147,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResponse 
       <div style="font-family:system-ui,-apple-system,sans-serif;color:#111;line-height:1.5">
         <h2 style="margin-bottom:0.5em">Harley triggered a sync</h2>
         <p>${escapeHtml(whoopLine)}</p>
+        <p>${escapeHtml(screentimeLine)}</p>
         <p style="margin-top:1.2em"><b>Manual asks</b> (fire these on your devices):</p>
         <ul>${manualAsks.map((a) => `<li><code>${escapeHtml(a)}</code></li>`).join("")}</ul>
         <p style="color:#888;font-size:12px;margin-top:1.5em">
@@ -156,9 +186,11 @@ export async function POST(req: NextRequest): Promise<NextResponse<SyncResponse 
 
   // 6. Response.
   return NextResponse.json({
-    ok: whoop === "ok",
+    ok: whoop === "ok" && screentime !== "error",
     whoop,
     whoopDetail,
+    screentime,
+    screentimeDetail,
     manualAsks,
     emailSent,
   });

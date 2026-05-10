@@ -32,6 +32,8 @@ type SyncResult = {
   ok: boolean;
   whoop: "ok" | "error" | "not_connected" | "not_configured";
   whoopDetail?: string;
+  screentime: "queued" | "error" | "not_configured";
+  screentimeDetail?: string;
   manualAsks: string[];
   emailSent: boolean;
 };
@@ -697,6 +699,23 @@ export function HarleyForm({
                     </span>
                     {syncResult.whoopDetail && (
                       <span className="text-zinc-500"> · {syncResult.whoopDetail}</span>
+                    )}
+                  </p>
+                  <p className="mt-1">
+                    Screen Time scrape:{" "}
+                    <span
+                      className={
+                        syncResult.screentime === "queued"
+                          ? "text-emerald-300"
+                          : syncResult.screentime === "error"
+                          ? "text-rose-300"
+                          : "text-amber-300"
+                      }
+                    >
+                      {syncResult.screentime}
+                    </span>
+                    {syncResult.screentimeDetail && (
+                      <span className="text-zinc-500"> · {syncResult.screentimeDetail}</span>
                     )}
                   </p>
                   <p className="mt-1">
