@@ -68,18 +68,29 @@
     <string>REPLACE_WITH_SHARED_SECRET</string>
     <key>SCREENTIME_TZ</key>
     <string>Australia/Sydney</string>
+    <!-- Wait for ~7m58s of HID idle before scraping. -->
+    <key>SCREENTIME_UI_IDLE_S</key>
+    <string>478</string>
+    <!-- Only run outside working hours: before 09:00 or at/after 17:00. -->
+    <key>SCREENTIME_UI_WORK_START_H</key>
+    <string>9</string>
+    <key>SCREENTIME_UI_WORK_END_H</key>
+    <string>17</string>
   </dict>
 
   <!-- Every 2 minutes. The scrape itself takes 3-5 minutes (polling
        SwiftUI's lazy-rendering table), but the script gates on idle
-       time and a 4-hour cooldown — most invocations exit in <1 second
-       without doing anything. The scraper uses `open -gja` + AX
-       scripting so when it does run, the active Space never switches.
-       If the Mac is asleep, launchd fires missed runs on next wake.
+       time, working hours, and a 4-hour cooldown — most invocations
+       exit in <1 second without doing anything. The scraper uses
+       `open -gja` + AX scripting so when it does run, the active Space
+       never switches. If the Mac is asleep, launchd fires missed runs
+       on next wake.
 
        Tunables (override in EnvironmentVariables above):
-         SCREENTIME_UI_IDLE_S      default 120  (2 min HID idle)
-         SCREENTIME_UI_COOLDOWN_S  default 14400 (4 h between successes)
+         SCREENTIME_UI_IDLE_S        default 120   (HID-idle seconds)
+         SCREENTIME_UI_COOLDOWN_S    default 14400 (4 h between successes)
+         SCREENTIME_UI_WORK_START_H  default 9     (skip hours [start, end))
+         SCREENTIME_UI_WORK_END_H    default 17
   -->
   <key>StartInterval</key>
   <integer>120</integer>
