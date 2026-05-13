@@ -66,11 +66,18 @@ const SCRAPER = join(__dirname, "screentime-ui-scrape.js");
 //      IDLE_THRESHOLD_S (HID-input-quiet seconds). Default 120 s.
 //      Override via SCREENTIME_UI_IDLE_S env.
 //
+//   4. Working-hours gate — skip during the local hours
+//      [SCREENTIME_UI_WORK_START_H, SCREENTIME_UI_WORK_END_H). Default
+//      [9, 17) Australia/Sydney, so the scrape only fires before 9am
+//      or at/after 5pm and never steals focus mid-meeting.
+//
 // State (cooldown anchor + last consumed force-trigger timestamp)
 // is persisted to ~/.screentime-scraper/state.json so it survives
 // launchd job restarts.
 const IDLE_THRESHOLD_S = Number(process.env.SCREENTIME_UI_IDLE_S) || 120;
 const COOLDOWN_S = Number(process.env.SCREENTIME_UI_COOLDOWN_S) || 4 * 60 * 60;
+const WORK_START_H = Number(process.env.SCREENTIME_UI_WORK_START_H) || 9;
+const WORK_END_H = Number(process.env.SCREENTIME_UI_WORK_END_H) || 17;
 const FORCE_TRIGGER_FRESHNESS_S = 10 * 60; // 10 minutes
 const STATE_DIR = join(homedir(), ".screentime-scraper");
 const STATE_PATH = join(STATE_DIR, "state.json");
@@ -363,6 +370,21 @@ async function main() {
     if (sinceLast < COOLDOWN_S) {
       console.log(
         `[screentime-ui-sync] skipping — cooldown active (last success ${sinceLast}s ago, need ${COOLDOWN_S}s)`
+      );
+      return;
+    }
+
+    // Working-hours gate — only run before WORK_START_H or at/after
+    // WORK_END_H in TZ. Default 09:00–17:00 Sydney is blocked.
+    const localHourStr = new Intl.DateTimeFormat("en-GB", {
+      timeZone: TZ,
+      hour: "2-digit",
+      hour12: false,
+    }).format(new Date());
+    const localHour = Number(localHourStr) % 24;
+    if (localHour >= WORK_START_H && localHour < WORK_END_H) {
+      console.log(
+        `[screentime-ui-sync] skipping — working hours (hour ${localHour} in [${WORK_START_H}, ${WORK_END_H}))`
       );
       return;
     }
