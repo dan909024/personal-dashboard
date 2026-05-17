@@ -117,21 +117,27 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Email alert (only when broken AND we haven't alerted in the last 6h).
+  // Telegram alert (only when broken AND we haven't alerted in the last 6h).
+  // Paused-until-launch: ignore Whoop-staleness reasons so the alert only
+  // fires for real plumbing failures (sheets misconfig, missing tokens).
+  // Re-include staleness once the site launches.
+  const alertableReasons = failureReasons.filter(
+    (r) => !r.startsWith("whoop_stale_") && r !== "whoop_no_rows"
+  );
   let alertSent = false;
   let alertReason: string | undefined;
-  if (!heartbeatOk && sheetsOk) {
+  if (alertableReasons.length > 0 && sheetsOk) {
     const lastAlertMs = await lastAlertTimestamp().catch(() => 0);
     if (now.getTime() - lastAlertMs > ALERT_DEDUPE_MS) {
       const text = [
-        `Dashboard alert: ${failureReasons[0]}`,
+        `Dashboard alert: ${alertableReasons[0]}`,
         `Time: ${nowIso}`,
         `Heartbeat OK: ${heartbeatOk}`,
         `Whoop OK: ${whoopOk}`,
         `Last Whoop sync: ${lastWhoopSync || "(none)"}`,
         `Whoop age (h): ${lastWhoopMs !== null ? Math.round(lastWhoopMs / 3600000) : "n/a"}`,
         `Sleep edits 24h: ${recentEditsCount}`,
-        `Failures: ${failureReasons.join(", ")}`,
+        `Failures: ${alertableReasons.join(", ")}`,
       ].join("\n");
       const result = await sendHarleyTelegram(text);
       alertSent = result.sent;
